@@ -7,6 +7,7 @@ import 'dashboard_screen.dart';
 import 'appointments_screen.dart';
 import 'patients_list_screen.dart';
 import 'analytics_screen.dart';
+
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
@@ -31,14 +32,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _loadProfile();
   }
 
+  // ✅ Load profile (runs once)
   Future<void> _loadProfile() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
       nameController.text = prefs.getString('name') ?? 'Dr. Sarah Doe';
       licenseController.text = prefs.getString('license') ?? 'PHVET-2023-014587';
       emailController.text = prefs.getString('email') ?? 'sarah@vetclinic.com';
-      locationController.text =
-          prefs.getString('location') ?? 'Marawoy, Lipa City, Batangas';
+      locationController.text = prefs.getString('location') ?? 'Marawoy, Lipa City, Batangas';
       clinicController.text = prefs.getString('clinic') ?? '';
       specialization = prefs.getString('specialization') ?? 'Pathology';
       String? imagePath = prefs.getString('profileImage');
@@ -48,6 +49,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     });
   }
 
+  // ✅ Manual save only when pressing "Save Changes"
   Future<void> _saveProfile() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('name', nameController.text);
@@ -59,21 +61,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (profileImage != null) {
       await prefs.setString('profileImage', profileImage!.path);
     }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("✅ Profile saved successfully!"),
+          backgroundColor: Color(0xFF6B8E23),
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
   }
 
+  // ✅ Pick new profile picture (not auto-saved)
   Future<void> _pickImage() async {
-    final pickedFile =
-        await ImagePicker().pickImage(source: ImageSource.gallery);
+    final pickedFile = await ImagePicker().pickImage(source: ImageSource.gallery);
     if (pickedFile != null) {
       setState(() {
         profileImage = File(pickedFile.path);
       });
-      _saveProfile();
     }
   }
 
-  void _navigateTo(Widget screen) async {
-    await _saveProfile();
+  // ✅ Navigation (no auto-save)
+  void _navigateTo(Widget screen) {
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(builder: (_) => screen),
@@ -86,22 +97,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
       body: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ✅ Sidebar (same as Dashboard)
+          // Sidebar
           Container(
             width: 240,
             color: const Color(0xFF728D5A),
             padding: const EdgeInsets.symmetric(vertical: 30, horizontal: 16),
             child: Column(
               children: [
-                Center(
-                  child: Image.asset('assets/furever2.png', width: 150),
-                ),
+                Center(child: Image.asset('assets/furever2.png', width: 150)),
                 const SizedBox(height: 40),
-                _sidebarItem(
-                  icon: Icons.person,
-                  title: "Profile",
-                  selected: true,
-                ),
+                _sidebarItem(icon: Icons.person, title: "Profile", selected: true),
                 const SizedBox(height: 12),
                 _sidebarItem(
                   icon: Icons.dashboard,
@@ -114,7 +119,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   title: "Appointments",
                   onTap: () => _navigateTo(AppointmentsPage()),
                 ),
-                                const SizedBox(height: 12),
+                const SizedBox(height: 12),
                 _sidebarItem(
                   icon: Icons.analytics,
                   title: "Analytics",
@@ -127,69 +132,61 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   onTap: () => _navigateTo(const PatientsListScreen()),
                 ),
                 const SizedBox(height: 12),
-                _sidebarItem(
-                  icon: Icons.feedback,
-                  title: "Feedback",
-                ),
+                _sidebarItem(icon: Icons.feedback, title: "Feedback"),
               ],
             ),
           ),
 
-          // ✅ Main Content
+          // Main Content
           Expanded(
             child: Column(
               children: [
-                // Header with new "Get Premium" button
-// Header with new "Get Premium" button
-Container(
-  width: double.infinity,
-  color: const Color(0xFFBDD9A4),
-  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-  child: Row(
-    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-    children: [
-      const Text(
-        "Profile",
-        style: TextStyle(
-          fontSize: 28,
-          fontWeight: FontWeight.bold,
-          color: Colors.black,
-        ),
-      ),
-      Row(
-        children: [
-          ElevatedButton.icon(
-            onPressed: () {
-              Navigator.pushReplacement(
-                context,
-                MaterialPageRoute(
-                  builder: (_) => const PaymentOptionScreen(),
+                // Header
+                Container(
+                  width: double.infinity,
+                  color: const Color(0xFFBDD9A4),
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        "Profile",
+                        style: TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.black,
+                        ),
+                      ),
+                      ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.pushReplacement(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => const PaymentOptionScreen(),
+                            ),
+                          );
+                        },
+                        icon: const Icon(Icons.star, color: Colors.white),
+                        label: const Text(
+                          "Get Premium",
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF6B8E23),
+                          padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 18),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              );
-            },
-            icon: const Icon(Icons.star, color: Colors.white),
-            label: const Text(
-              "Get Premium",
-              style: TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF6B8E23),
-              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 18),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-          ),
-        ],
-      ),
-    ],
-  ),
-),
 
-                // ✅ Profile Content
+                // Profile Body
                 Expanded(
                   child: Container(
                     color: const Color(0xFFF8F9F5),
@@ -213,18 +210,15 @@ Container(
                           child: Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              // Left column: Avatar
+                              // Avatar
                               Column(
                                 children: [
                                   CircleAvatar(
                                     radius: 60,
                                     backgroundColor: const Color(0xFFBBD29C),
-                                    backgroundImage: profileImage != null
-                                        ? FileImage(profileImage!)
-                                        : null,
+                                    backgroundImage: profileImage != null ? FileImage(profileImage!) : null,
                                     child: profileImage == null
-                                        ? const Icon(Icons.person,
-                                            size: 60, color: Colors.white)
+                                        ? const Icon(Icons.person, size: 60, color: Colors.white)
                                         : null,
                                   ),
                                   const SizedBox(height: 15),
@@ -243,28 +237,42 @@ Container(
                               ),
                               const SizedBox(width: 50),
 
-                              // Middle column: Editable fields
+                              // Editable Fields
                               Expanded(
                                 child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     _editableField("Full Name", nameController),
                                     const SizedBox(height: 20),
-                                    _editableField("License Number",
-                                        licenseController),
+                                    _editableField("License Number", licenseController),
                                     const SizedBox(height: 20),
                                     _editableField("Email", emailController),
                                     const SizedBox(height: 20),
-                                    _editableField(
-                                        "Location", locationController),
+                                    _editableField("Location", locationController),
                                     const SizedBox(height: 20),
-                                    _editableField("Clinic Name (optional)",
-                                        clinicController),
+                                    _editableField("Clinic Name (optional)", clinicController),
+                                    const SizedBox(height: 30),
+                                    Center(
+                                      child: ElevatedButton.icon(
+                                        onPressed: _saveProfile,
+                                        icon: const Icon(Icons.save),
+                                        label: const Text("Save Changes"),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: const Color(0xFF728D5A),
+                                          foregroundColor: Colors.white,
+                                          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 24),
+                                          shape: RoundedRectangleBorder(
+                                            borderRadius: BorderRadius.circular(10),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
                                   ],
                                 ),
                               ),
                               const SizedBox(width: 40),
 
-                              // Right column: License & Specialization
+                              // License + Specialization
                               Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
@@ -273,14 +281,12 @@ Container(
                                     padding: const EdgeInsets.all(18),
                                     decoration: BoxDecoration(
                                       borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(
-                                          color: Colors.grey.shade300),
+                                      border: Border.all(color: Colors.grey.shade300),
                                       color: Colors.white,
                                     ),
                                     child: Column(
                                       children: const [
-                                        Icon(Icons.verified,
-                                            size: 50, color: Colors.green),
+                                        Icon(Icons.verified, size: 50, color: Colors.green),
                                         SizedBox(height: 10),
                                         Text(
                                           "License Verified",
@@ -299,18 +305,15 @@ Container(
                                     padding: const EdgeInsets.all(18),
                                     decoration: BoxDecoration(
                                       borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(
-                                          color: Colors.grey.shade300),
+                                      border: Border.all(color: Colors.grey.shade300),
                                       color: Colors.white,
                                     ),
                                     child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
+                                      crossAxisAlignment: CrossAxisAlignment.start,
                                       children: [
                                         const Text(
                                           "Specialization",
-                                          style: TextStyle(
-                                              fontWeight: FontWeight.bold),
+                                          style: TextStyle(fontWeight: FontWeight.bold),
                                         ),
                                         const SizedBox(height: 12),
                                         DropdownButton<String>(
@@ -324,9 +327,7 @@ Container(
                                                   ))
                                               .toList(),
                                           onChanged: (value) {
-                                            setState(
-                                                () => specialization = value!);
-                                            _saveProfile();
+                                            setState(() => specialization = value!);
                                           },
                                         ),
                                       ],
@@ -356,10 +357,8 @@ Container(
         labelText: label,
         labelStyle: const TextStyle(fontWeight: FontWeight.w500),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       ),
-      onChanged: (_) => _saveProfile(),
     );
   }
 

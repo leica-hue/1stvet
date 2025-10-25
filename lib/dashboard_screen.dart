@@ -302,14 +302,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               },
                               child: const Text('Edit Profile'),
                             ),
-                            const SizedBox(width: 12),
-                            ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFFE5F5E9),
-                              ),
-                              onPressed: () {},
-                              child: const Text('View Public Profile'),
-                            )
                           ],
                         ),
                         const SizedBox(height: 40),
