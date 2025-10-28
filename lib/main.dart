@@ -28,7 +28,15 @@ class MyApp extends StatelessWidget {
           titleLarge: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
         ),
       ),
-      darkTheme: ThemeData(    
+      darkTheme: ThemeData(
+        fontFamily: 'Inter',
+        primarySwatch: Colors.green,
+        brightness: Brightness.dark,
+        textTheme: const TextTheme(
+          bodyLarge: TextStyle(fontSize: 16),
+          bodyMedium: TextStyle(fontSize: 14),
+          titleLarge: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+        ),
       ),
       home: const LoginScreen(registeredEmail: '', registeredPassword: '',) 
     );
