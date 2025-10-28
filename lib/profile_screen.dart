@@ -7,7 +7,7 @@ import 'dashboard_screen.dart';
 import 'appointments_screen.dart';
 import 'patients_list_screen.dart';
 import 'analytics_screen.dart';
-
+import 'feedback_screen.dart';
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
@@ -176,7 +176,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   onTap: () => _navigateTo(const PatientsListScreen()),
                 ),
                 const SizedBox(height: 12),
-                _sidebarItem(icon: Icons.feedback, title: "Feedback"),
+                _sidebarItem(icon: Icons.feedback, title: "Feedback",
+                  onTap: () => _navigateTo(const VetFeedbackScreen()),
+                ),
               ],
             ),
           ),

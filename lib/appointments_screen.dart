@@ -8,7 +8,7 @@ import 'dashboard_screen.dart';
 import 'appointments_table_view.dart';
 import 'patients_list_screen.dart';
 import 'profile_screen.dart';
-
+import 'feedback_screen.dart';
 void main() {
   runApp(const FureverHealthyApp());
 }
@@ -266,6 +266,11 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(builder: (_) => const ProfileScreen()),
+          );
+        } else if (title == "Feedback") {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const VetFeedbackScreen()),
           );
         }
         

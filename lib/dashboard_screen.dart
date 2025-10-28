@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_application_1/analytics_screen.dart';
+import 'package:flutter_application_1/feedback_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'appointments_screen.dart';
 import 'profile_screen.dart';
@@ -9,6 +10,7 @@ import 'login_screen.dart';
 import 'settings_screen.dart';
 import 'patients_list_screen.dart';
 import 'user_prefs.dart';
+import 'feedback_screen.dart';
 
 class Appointment {
   final String petName;
@@ -179,6 +181,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
         context,
         MaterialPageRoute(builder: (_) => const PatientsListScreen()),
       );
+    } else if (label == 'Feedback') {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => const VetFeedbackScreen()),
+      );
     }
   }
 
@@ -186,11 +193,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     // This is where your Firebase or API verification logic would go.
     // For now, we simulate success:
     setState(() => _isVerified = true);
-    await UserPrefs.saveVerification(isVerified: true); // ✅ updated function name and parameter
+    await UserPrefs.saveVerification(isVerified: true);
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('License verified successfully!')),
     );
   }
+
 
 
   @override
