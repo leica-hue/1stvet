@@ -1,10 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_application_1/analytics_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
 import 'appointments_screen.dart';
 import 'profile_screen.dart';
 import 'login_screen.dart';
@@ -12,7 +10,6 @@ import 'settings_screen.dart';
 import 'patients_list_screen.dart';
 import 'user_prefs.dart';
 
-// If you already have this model elsewhere, remove this and import your model instead.
 class Appointment {
   final String petName;
   final String purpose;
@@ -74,6 +71,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String _email = 'sarah@vetclinic.com';
   String _specialization = 'Pathology';
   File? _profileImage;
+  bool _isVerified = false; // 🔹 new field
 
   @override
   void initState() {
@@ -85,6 +83,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Future<void> _loadProfile() async {
     final profile = await UserPrefs.loadProfile();
+    final verification = await UserPrefs.loadVerification(); // ✅ new line
     if (!mounted) return;
     setState(() {
       _name = profile.name;
@@ -92,8 +91,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _email = profile.email;
       _specialization = profile.specialization;
       _profileImage = profile.profileImage;
+      _isVerified = verification.isVerified; // ✅ fixed line
     });
   }
+
 
   Future<void> _loadRatings() async {
     final r = await UserPrefs.loadRatings();
@@ -121,14 +122,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
       completedCount =
           _appointments.where((a) => a.status == 'Completed').length;
     });
-  }
-
-  Future<void> _saveAppointments() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList(
-      'appointments',
-      _appointments.map((a) => jsonEncode(a.toJson())).toList(),
-    );
   }
 
   void _submitRating(int newRating) async {
@@ -189,6 +182,17 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
+  Future<void> _verifyLicense() async {
+    // This is where your Firebase or API verification logic would go.
+    // For now, we simulate success:
+    setState(() => _isVerified = true);
+    await UserPrefs.saveVerification(isVerified: true); // ✅ updated function name and parameter
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('License verified successfully!')),
+    );
+  }
+
+
   @override
   Widget build(BuildContext context) {
     final today = DateTime.now();
@@ -230,30 +234,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Header
                 Container(
                   color: const Color(0xFFBDD9A4),
                   padding:
                       const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
-                  child: Row(
+                  child: const Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: const [
+                    children: [
                       Text(
                         'Dashboard',
-                        style:
-                            TextStyle(fontSize: 26, fontWeight: FontWeight.bold),
+                        style: TextStyle(
+                            fontSize: 26, fontWeight: FontWeight.bold),
                       ),
                     ],
                   ),
                 ),
-                // Body
                 Expanded(
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.all(32),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Profile section
                         Row(
                           children: [
                             CircleAvatar(
@@ -276,14 +277,31 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                         fontSize: 20,
                                         fontWeight: FontWeight.bold)),
                                 Text(_location),
-                                const Row(
-                                  children: [
-                                    Icon(Icons.verified,
-                                        size: 16, color: Colors.green),
-                                    SizedBox(width: 4),
-                                    Text('License Verified'),
-                                  ],
-                                ),
+                                Text(_specialization,
+                                    style:
+                                        const TextStyle(color: Colors.black54)),
+                                const SizedBox(height: 6),
+                                if (_isVerified)
+                                  const Row(
+                                    children: [
+                                      Icon(Icons.verified,
+                                          size: 16, color: Colors.green),
+                                      SizedBox(width: 4),
+                                      Text('License Verified'),
+                                    ],
+                                  )
+                                else
+                                  ElevatedButton(
+                                    onPressed: _verifyLicense,
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor:
+                                          const Color(0xFFEAF086),
+                                      foregroundColor: Colors.black,
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 20, vertical: 8),
+                                    ),
+                                    child: const Text('Verify License'),
+                                  ),
                               ],
                             ),
                             const Spacer(),
@@ -305,8 +323,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ],
                         ),
                         const SizedBox(height: 40),
-
-                        // Appointments header
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
@@ -330,8 +346,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ],
                         ),
                         const SizedBox(height: 20),
-
-                        // Appointments + rating summary
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -498,31 +512,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   _statusCount('Completed', completedCount, color: Colors.blue),
                 ],
               ),
-              const Divider(height: 30),
-              const Text('Specialization',
-                  style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              DropdownButton<String>(
-                value: _specialization,
-                isExpanded: true,
-                onChanged: (String? newValue) async {
-                  if (newValue == null) return;
-                  final prefs = await SharedPreferences.getInstance();
-                  setState(() => _specialization = newValue);
-                  await prefs.setString(UserPrefsKeys.specialization, newValue);
-                },
-                items: const ['Pathology', 'Dermatology', 'Behaviour']
-                    .map<DropdownMenuItem<String>>(
-                      (v) => DropdownMenuItem<String>(
-                        value: v,
-                        child: Text(v),
-                      ),
-                    )
-                    .toList(),
-              ),
             ],
           ),
-        )
+        ),
       ],
     );
   }

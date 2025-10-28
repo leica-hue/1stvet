@@ -25,6 +25,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String specialization = 'Pathology';
   List<String> specializations = ['Pathology', 'Behaviour', 'Dermatology'];
   File? profileImage;
+  File? idImage;
+  bool isVerified = false;
 
   @override
   void initState() {
@@ -42,9 +44,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
       locationController.text = prefs.getString('location') ?? 'Marawoy, Lipa City, Batangas';
       clinicController.text = prefs.getString('clinic') ?? '';
       specialization = prefs.getString('specialization') ?? 'Pathology';
+      isVerified = prefs.getBool('isVerified') ?? false;
+
       String? imagePath = prefs.getString('profileImage');
       if (imagePath != null && File(imagePath).existsSync()) {
         profileImage = File(imagePath);
+      }
+
+      String? idPath = prefs.getString('idImage');
+      if (idPath != null && File(idPath).existsSync()) {
+        idImage = File(idPath);
       }
     });
   }
@@ -58,8 +67,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
     await prefs.setString('location', locationController.text);
     await prefs.setString('clinic', clinicController.text);
     await prefs.setString('specialization', specialization);
+    await prefs.setBool('isVerified', isVerified);
     if (profileImage != null) {
       await prefs.setString('profileImage', profileImage!.path);
+    }
+    if (idImage != null) {
+      await prefs.setString('idImage', idImage!.path);
     }
 
     if (mounted) {
@@ -80,6 +93,37 @@ class _ProfileScreenState extends State<ProfileScreen> {
       setState(() {
         profileImage = File(pickedFile.path);
       });
+    }
+  }
+
+  // ✅ Pick ID image for verification
+  Future<void> _uploadId() async {
+    final pickedFile = await ImagePicker().pickImage(source: ImageSource.gallery);
+    if (pickedFile != null) {
+      setState(() {
+        idImage = File(pickedFile.path);
+      });
+
+      // Simulate admin verification delay
+      await Future.delayed(const Duration(seconds: 2));
+
+      setState(() {
+        isVerified = true;
+      });
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('isVerified', true);
+      await prefs.setString('idImage', pickedFile.path);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("✅ ID uploaded successfully! Awaiting verification..."),
+            backgroundColor: Color(0xFF728D5A),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
     }
   }
 
@@ -272,12 +316,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               ),
                               const SizedBox(width: 40),
 
-                              // License + Specialization
+                              // Verification + Specialization
                               Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Container(
-                                    width: 180,
+                                    width: 200,
                                     padding: const EdgeInsets.all(18),
                                     decoration: BoxDecoration(
                                       borderRadius: BorderRadius.circular(12),
@@ -285,17 +329,44 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                       color: Colors.white,
                                     ),
                                     child: Column(
-                                      children: const [
-                                        Icon(Icons.verified, size: 50, color: Colors.green),
-                                        SizedBox(height: 10),
-                                        Text(
-                                          "License Verified",
-                                          textAlign: TextAlign.center,
-                                          style: TextStyle(
-                                            color: Colors.green,
-                                            fontWeight: FontWeight.bold,
+                                      children: [
+                                        if (isVerified)
+                                          const Column(
+                                            children: [
+                                              Icon(Icons.verified, size: 50, color: Colors.green),
+                                              SizedBox(height: 10),
+                                              Text(
+                                                "License Verified",
+                                                textAlign: TextAlign.center,
+                                                style: TextStyle(
+                                                  color: Colors.green,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                            ],
+                                          )
+                                        else
+                                          Column(
+                                            children: [
+                                              ElevatedButton.icon(
+                                                onPressed: _uploadId,
+                                                icon: const Icon(Icons.upload_file),
+                                                label: const Text("Get Verified"),
+                                                style: ElevatedButton.styleFrom(
+                                                  backgroundColor: const Color(0xFFEAF086),
+                                                  foregroundColor: Colors.black,
+                                                  padding: const EdgeInsets.symmetric(
+                                                      vertical: 12, horizontal: 16),
+                                                ),
+                                              ),
+                                              const SizedBox(height: 10),
+                                              const Text(
+                                                "Upload valid ID to verify your license.",
+                                                textAlign: TextAlign.center,
+                                                style: TextStyle(fontSize: 12, color: Colors.black54),
+                                              ),
+                                            ],
                                           ),
-                                        ),
                                       ],
                                     ),
                                   ),

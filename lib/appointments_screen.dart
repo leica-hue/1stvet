@@ -137,10 +137,8 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                           fontWeight: FontWeight.bold,
                           color: Colors.black,
                         ),
-                      ),
-                      Icon(Icons.notifications_none,
-                          size: 28, color: Colors.black),
-                    ],
+                      ),              
+                            ],
                   ),
                 ),
 
