@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter_application_1/analytics_screen.dart';
-import 'package:flutter_application_1/feedback_screen.dart';
+import 'analytics_screen.dart';
+import 'feedback_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'appointments_screen.dart';
 import 'profile_screen.dart';
@@ -511,8 +511,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
               const Text('Appointment Summary',
                   style: TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
                 children: [
                   _statusCount('Pending', pendingCount, color: Colors.orange),
                   _statusCount('Confirmed', confirmedCount, color: Colors.green),

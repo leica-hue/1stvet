@@ -1,6 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter_application_1/payment_option_screen.dart';
+import 'payment_option_screen.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dashboard_screen.dart';
@@ -23,7 +23,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final TextEditingController clinicController = TextEditingController();
 
   String specialization = 'Pathology';
-  List<String> specializations = ['Pathology', 'Behaviour', 'Dermatology'];
+  List<String> specializations = ['Pathology', 'Behaviour', 'Dermatology', 'General'];
   File? profileImage;
   File? idImage;
   bool isVerified = false;
@@ -43,7 +43,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
       emailController.text = prefs.getString('email') ?? 'sarah@vetclinic.com';
       locationController.text = prefs.getString('location') ?? 'Marawoy, Lipa City, Batangas';
       clinicController.text = prefs.getString('clinic') ?? '';
-      specialization = prefs.getString('specialization') ?? 'Pathology';
+      String? savedSpecialization = prefs.getString('specialization');
+      specialization = specializations.contains(savedSpecialization) ? savedSpecialization! : 'Pathology';
       isVerified = prefs.getBool('isVerified') ?? false;
 
       String? imagePath = prefs.getString('profileImage');
