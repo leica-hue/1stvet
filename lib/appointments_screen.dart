@@ -9,6 +9,8 @@ import 'appointments_table_view.dart';
 import 'patients_list_screen.dart';
 import 'profile_screen.dart';
 import 'feedback_screen.dart';
+import 'zoom_meeting_screen.dart'; // ✅ NEW IMPORT
+
 void main() {
   runApp(const FureverHealthyApp());
 }
@@ -137,8 +139,8 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                           fontWeight: FontWeight.bold,
                           color: Colors.black,
                         ),
-                      ),              
-                            ],
+                      ),
+                    ],
                   ),
                 ),
 
@@ -149,7 +151,7 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // FILTER TABS + TABLE VIEW BTN
+                        // FILTER TABS + TABLE VIEW + ZOOM BTN
                         Row(
                           children: [
                             _tabButton("All"),
@@ -173,6 +175,22 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                                 );
                               },
                               child: const Text("Table View"),
+                            ),
+                            const SizedBox(width: 10),
+                            ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.blueGrey,
+                                foregroundColor: Colors.white,
+                              ),
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                      builder: (_) =>
+                                          const CreateZoomMeetingScreen()),
+                                );
+                              },
+                              child: const Text("Join Zoom"),
                             ),
                           ],
                         ),
@@ -222,10 +240,10 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
     );
   }
 
-  /// Sidebar (matches Dashboard sequence + size)
+  /// Sidebar
   Widget _buildSidebar() {
     return Container(
-      width: 240, // same as Dashboard
+      width: 240,
       color: const Color(0xFF728D5A),
       child: Column(
         children: [
@@ -238,7 +256,6 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
           _sidebarItem(Icons.analytics, "Analytics"),
           _sidebarItem(Icons.pets, "Patients"),
           _sidebarItem(Icons.feedback_outlined, "Feedback"),
-
         ],
       ),
     );
@@ -273,7 +290,6 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
             MaterialPageRoute(builder: (_) => const VetFeedbackScreen()),
           );
         }
-        
       },
       child: Container(
         width: double.infinity,
@@ -365,7 +381,7 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
     );
   }
 
-  /// Appointment card
+  /// Appointment Card
   Widget _appointmentCard(Appointment appt) {
     Color statusColor;
     switch (appt.status) {
@@ -405,8 +421,7 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                 value: appt.status,
                 underline: const SizedBox(),
                 items: ["Pending", "Confirmed", "Declined", "Completed"]
-                    .map((s) =>
-                        DropdownMenuItem(value: s, child: Text(s)))
+                    .map((s) => DropdownMenuItem(value: s, child: Text(s)))
                     .toList(),
                 onChanged: (val) {
                   if (val != null) {
@@ -444,7 +459,8 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
               ElevatedButton(
                 onPressed: () {},
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color.fromARGB(255, 169, 225, 150),
+                  backgroundColor:
+                      const Color.fromARGB(255, 169, 225, 150),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8)),
                 ),
@@ -480,7 +496,7 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
     );
   }
 
-  /// Filter Tab Buttons
+  /// Filter Tabs
   Widget _tabButton(String label) {
     final isSelected = _selectedFilter == label;
     return Padding(
@@ -537,8 +553,7 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                   value: status,
                   decoration: const InputDecoration(labelText: "Status"),
                   items: ["Pending", "Confirmed", "Declined", "Completed"]
-                      .map((s) =>
-                          DropdownMenuItem(value: s, child: Text(s)))
+                      .map((s) => DropdownMenuItem(value: s, child: Text(s)))
                       .toList(),
                   onChanged: (val) {
                     if (val != null) status = val;
