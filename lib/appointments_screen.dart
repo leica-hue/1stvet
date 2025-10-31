@@ -9,7 +9,8 @@ import 'appointments_table_view.dart';
 import 'patients_list_screen.dart';
 import 'profile_screen.dart';
 import 'feedback_screen.dart';
-import 'zoom_meeting_screen.dart'; // ✅ NEW IMPORT
+import 'zoom_meeting_screen.dart';
+import 'vet_history_notes_screen.dart'; // ✅ NEW IMPORT
 
 void main() {
   runApp(const FureverHealthyApp());
@@ -35,6 +36,7 @@ class Appointment {
   String time;
   String owner;
   String status;
+  String vetNotes; // ✅ Added for Vet Notes
 
   Appointment({
     required this.date,
@@ -43,6 +45,7 @@ class Appointment {
     required this.time,
     required this.owner,
     this.status = "Pending",
+    this.vetNotes = "",
   });
 
   Map<String, dynamic> toJson() => {
@@ -52,6 +55,7 @@ class Appointment {
         'time': time,
         'owner': owner,
         'status': status,
+        'vetNotes': vetNotes,
       };
 
   static Appointment fromJson(Map<String, dynamic> json) => Appointment(
@@ -61,6 +65,7 @@ class Appointment {
         time: json['time'],
         owner: json['owner'],
         status: json['status'],
+        vetNotes: json['vetNotes'] ?? "",
       );
 }
 
@@ -129,18 +134,13 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                   color: const Color(0xFFBDD9A4),
                   padding:
                       const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: const [
-                      Text(
-                        "Appointments",
-                        style: TextStyle(
-                          fontSize: 28,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.black,
-                        ),
-                      ),
-                    ],
+                  child: const Text(
+                    "Appointments",
+                    style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black,
+                    ),
                   ),
                 ),
 
@@ -151,7 +151,7 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // FILTER TABS + TABLE VIEW + ZOOM BTN
+                        // FILTER TABS + BUTTONS
                         Row(
                           children: [
                             _tabButton("All"),
@@ -160,6 +160,7 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                             _tabButton("Declined"),
                             _tabButton("Completed"),
                             const Spacer(),
+                            // ✅ Table View Button
                             ElevatedButton(
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: const Color(0xFF728D5A),
@@ -177,6 +178,28 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                               child: const Text("Table View"),
                             ),
                             const SizedBox(width: 10),
+                            // ✅ New History Button
+                            ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF9DBD81),
+                                foregroundColor: Colors.white,
+                              ),
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (_) => VetNotesScreen(
+                                        appointments: _appointments,
+                                        onSave: () async {
+                                          await _saveAppointments();
+                                        }),
+                                  ),
+                                );
+                              },
+                              child: const Text("History & Notes"),
+                            ),
+                            const SizedBox(width: 10),
+                            // ✅ Zoom Button
                             ElevatedButton(
                               style: ElevatedButton.styleFrom(
                                 backgroundColor: Colors.blueGrey,
@@ -459,8 +482,7 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
               ElevatedButton(
                 onPressed: () {},
                 style: ElevatedButton.styleFrom(
-                  backgroundColor:
-                      const Color.fromARGB(255, 169, 225, 150),
+                  backgroundColor: const Color.fromARGB(255, 169, 225, 150),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(8)),
                 ),
@@ -468,6 +490,13 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
               ),
             ],
           ),
+          const SizedBox(height: 8),
+          if (appt.vetNotes.isNotEmpty)
+            Text(
+              "Notes: ${appt.vetNotes}",
+              style:
+                  const TextStyle(fontStyle: FontStyle.italic, fontSize: 14),
+            ),
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
@@ -486,8 +515,8 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                     _saveAppointments();
                   });
                 },
-                child: const Text("Delete",
-                    style: TextStyle(color: Colors.red)),
+                child:
+                    const Text("Delete", style: TextStyle(color: Colors.red)),
               ),
             ],
           )
@@ -526,6 +555,7 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
         TextEditingController(text: existing?.purpose ?? "");
     final timeController = TextEditingController(text: existing?.time ?? "");
     final ownerController = TextEditingController(text: existing?.owner ?? "");
+    final vetNotesController = TextEditingController(text: existing?.vetNotes ?? "");
     String status = existing?.status ?? "Pending";
 
     showDialog(
@@ -549,6 +579,10 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                 TextField(
                     controller: ownerController,
                     decoration: const InputDecoration(labelText: "Owner Name")),
+                TextField(
+                    controller: vetNotesController,
+                    decoration:
+                        const InputDecoration(labelText: "Vet Notes")),
                 DropdownButtonFormField<String>(
                   value: status,
                   decoration: const InputDecoration(labelText: "Status"),
@@ -575,6 +609,7 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                     existing.time = timeController.text;
                     existing.owner = ownerController.text;
                     existing.status = status;
+                    existing.vetNotes = vetNotesController.text;
                     _saveAppointments();
                   }
                 });

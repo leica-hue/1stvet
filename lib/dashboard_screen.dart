@@ -287,7 +287,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 Text(_location),
                                 Text(_specialization,
                                     style:
-                                        const TextStyle(color: Colors.black54)),
+                                        const TextStyle(color: Color.fromARGB(255, 26, 25, 25))),
                                 const SizedBox(height: 6),
                                 if (_isVerified)
                                   const Row(

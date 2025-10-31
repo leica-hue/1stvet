@@ -4,10 +4,9 @@ import 'package:flutter_application_1/feedback_screen.dart';
 import 'package:flutter_application_1/profile_screen.dart';
 import 'patients_screen.dart';
 import 'dashboard_screen.dart';
-import 'appointments_table_view.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
-
+import 'appointments_screen.dart';
 class PatientsListScreen extends StatefulWidget {
   const PatientsListScreen({super.key});
 
@@ -180,7 +179,7 @@ class _PatientsListScreenState extends State<PatientsListScreen> {
                 }),
                 _sidebarItem("Appointments", icon: Icons.calendar_today, onTap: () {
                   Navigator.pushReplacement(context,
-                      MaterialPageRoute(builder: (context) => const AppointmentsTableView(appointments: [])));
+                      MaterialPageRoute(builder: (context) => AppointmentsPage()));
                 }),
                 _sidebarItem("Analytics", icon: Icons.analytics, onTap: () {
                   Navigator.pushReplacement(context,
