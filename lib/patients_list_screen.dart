@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_application_1/analytics_screen.dart';
 import 'package:flutter_application_1/feedback_screen.dart';
 import 'package:flutter_application_1/profile_screen.dart';
 import 'patients_screen.dart';
 import 'dashboard_screen.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert';
 import 'appointments_screen.dart';
+
 class PatientsListScreen extends StatefulWidget {
   const PatientsListScreen({super.key});
 
@@ -17,63 +17,41 @@ class PatientsListScreen extends StatefulWidget {
 class _PatientsListScreenState extends State<PatientsListScreen> {
   final Color sidebarColor = const Color(0xFF728D5A);
   final Color headerColor = const Color(0xFFBDD9A4);
+  final _firestore = FirebaseFirestore.instance;
 
-  List<Map<String, String>> patients = [];
-  Set<int> selectedRows = {};
+  Set<String> selectedDocIds = {};
 
-  @override
-  void initState() {
-    super.initState();
-    
-    _loadPatients();
-  }
+  Future<void> _deleteSelected() async {
+    if (selectedDocIds.isEmpty) return;
 
-  Future<void> _loadPatients() async {
-    final prefs = await SharedPreferences.getInstance();
-    final String? patientsJson = prefs.getString("patients");
-
-    if (patientsJson != null) {
-      final List<dynamic> decoded = jsonDecode(patientsJson);
-      setState(() {
-        patients = decoded.map((e) => Map<String, String>.from(e)).toList();
-      });
-    }
-  }
-
-  Future<void> _savePatients() async {
-    final prefs = await SharedPreferences.getInstance();
-    final String encoded = jsonEncode(patients);
-    await prefs.setString("patients", encoded);
-  }
-
-  void _addPatient(Map<String, String> patient) {
-    setState(() {
-      patients.add(patient);
-    });
-    _savePatients();
-  }
-
-  Future<void> _openPatientForm({Map<String, String>? existingPatient, int? index}) async {
-    final result = await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => PatientsScreen(existingPatient: existingPatient),
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Delete Selected Patients"),
+        content: const Text(
+            "Are you sure you want to delete the selected patients?"),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text("Cancel")),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text("Delete"),
+          ),
+        ],
       ),
     );
 
-    if (result != null && result is Map<String, String>) {
-      setState(() {
-        if (index != null) {
-          patients[index] = result; // ✅ Update existing
-        } else {
-          patients.add(result); // ✅ Add new
-        }
-      });
-      _savePatients();
+    if (confirm == true) {
+      for (final id in selectedDocIds) {
+        await _firestore.collection('patients').doc(id).delete();
+      }
+      setState(() => selectedDocIds.clear());
     }
   }
 
-  void _viewPatientDetails(Map<String, String> patient) {
+  void _viewPatientDetails(Map<String, dynamic> patient) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -94,9 +72,8 @@ class _PatientsListScreenState extends State<PatientsListScreen> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("Close"),
-          ),
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Close")),
         ],
       ),
     );
@@ -112,47 +89,24 @@ class _PatientsListScreenState extends State<PatientsListScreen> {
     );
   }
 
-  void _toggleSelectAll() {
-    setState(() {
-      if (selectedRows.length == patients.length) {
-        selectedRows.clear();
-      } else {
-        selectedRows = Set<int>.from(List.generate(patients.length, (i) => i));
-      }
-    });
-  }
-
-  Future<void> _deleteSelected() async {
-    if (selectedRows.isEmpty) return;
-
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Delete Selected Patients"),
-        content: const Text("Are you sure you want to delete the selected patients?"),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text("Cancel")),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text("Delete"),
-          ),
-        ],
+  void _openPatientForm({Map<String, dynamic>? existingPatient, String? docId}) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) =>
+            PatientsScreen(existingPatient: existingPatient, docId: docId),
       ),
     );
+  }
 
-    if (confirm == true) {
-      setState(() {
-        final toRemove = selectedRows.toList()..sort((a, b) => b.compareTo(a));
-        for (final idx in toRemove) {
-          if (idx >= 0 && idx < patients.length) {
-            patients.removeAt(idx);
-          }
-        }
-        selectedRows.clear();
-      });
-      _savePatients();
-    }
+  void _toggleSelectAll(List<DocumentSnapshot> docs) {
+    setState(() {
+      if (selectedDocIds.length == docs.length) {
+        selectedDocIds.clear();
+      } else {
+        selectedDocIds = docs.map((e) => e.id).toSet();
+      }
+    });
   }
 
   @override
@@ -160,7 +114,7 @@ class _PatientsListScreenState extends State<PatientsListScreen> {
     return Scaffold(
       body: Row(
         children: [
-          // Sidebar
+          // 🟩 Sidebar
           Container(
             width: 220,
             color: sidebarColor,
@@ -194,12 +148,12 @@ class _PatientsListScreenState extends State<PatientsListScreen> {
             ),
           ),
 
-          // Main content
+          // 🟦 Main Content
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Header
+                // 🟨 Header
                 Container(
                   color: headerColor,
                   width: double.infinity,
@@ -208,128 +162,157 @@ class _PatientsListScreenState extends State<PatientsListScreen> {
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       const Text("Patients",
-                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 24)),
-                      Row(
-                        children: [
-                          if (selectedRows.isNotEmpty)
-                            ElevatedButton.icon(
-                              onPressed: _deleteSelected,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.red,
-                                padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                                shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(10)),
+                          style: TextStyle(
+                              fontWeight: FontWeight.bold, fontSize: 24)),
+                      StreamBuilder<QuerySnapshot>(
+                        stream: _firestore.collection('patients').snapshots(),
+                        builder: (context, snapshot) {
+                          final docs = snapshot.data?.docs ?? [];
+                          return Row(
+                            children: [
+                              if (selectedDocIds.isNotEmpty)
+                                ElevatedButton.icon(
+                                  onPressed: _deleteSelected,
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.red,
+                                    padding: const EdgeInsets.symmetric(
+                                        vertical: 12, horizontal: 16),
+                                    shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(10)),
+                                  ),
+                                  icon: const Icon(Icons.delete),
+                                  label: Text(
+                                      "Delete (${selectedDocIds.length})"),
+                                ),
+                              const SizedBox(width: 10),
+                              ElevatedButton.icon(
+                                onPressed: () => _toggleSelectAll(docs),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.orange,
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 12, horizontal: 16),
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10)),
+                                ),
+                                icon: const Icon(Icons.select_all),
+                                label: Text(selectedDocIds.length == docs.length
+                                    ? "Deselect All"
+                                    : "Select All"),
                               ),
-                              icon: const Icon(Icons.delete),
-                              label: Text("Delete (${selectedRows.length})"),
-                            ),
-                          const SizedBox(width: 10),
-                          ElevatedButton.icon(
-                            onPressed: _toggleSelectAll,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.orange,
-                              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                              shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10)),
-                            ),
-                            icon: const Icon(Icons.select_all),
-                            label: Text(selectedRows.length == patients.length
-                                ? "Deselect All"
-                                : "Select All"),
-                          ),
-                          const SizedBox(width: 10),
-                          ElevatedButton.icon(
-                            onPressed: () => _openPatientForm(),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.green,
-                              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                              shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10)),
-                            ),
-                            icon: const Icon(Icons.add),
-                            label: const Text("Add Patient"),
-                          ),
-                        ],
+                              const SizedBox(width: 10),
+                              ElevatedButton.icon(
+                                onPressed: () => _openPatientForm(),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: Colors.green,
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 12, horizontal: 16),
+                                  shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10)),
+                                ),
+                                icon: const Icon(Icons.add),
+                                label: const Text("Add Patient"),
+                              ),
+                            ],
+                          );
+                        },
                       ),
                     ],
                   ),
                 ),
 
-                // Table
+                // 🟩 Realtime Table
                 Expanded(
-                  child: patients.isEmpty
-                      ? const Center(
+                  child: StreamBuilder<QuerySnapshot>(
+                    stream: _firestore
+                        .collection('patients')
+                        .orderBy('registeredDate', descending: true)
+                        .snapshots(),
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+
+                      final docs = snapshot.data?.docs ?? [];
+
+                      if (docs.isEmpty) {
+                        return const Center(
                           child: Text(
                             "No patients found.\nClick 'Add Patient' to add one.",
                             textAlign: TextAlign.center,
-                            style: TextStyle(fontSize: 16, color: Colors.black54),
+                            style: TextStyle(
+                                fontSize: 16, color: Colors.black54),
                           ),
-                        )
-                      : SingleChildScrollView(
-                          scrollDirection: Axis.vertical,
-                          child: SingleChildScrollView(
-                            scrollDirection: Axis.horizontal,
-                            child: DataTable(
-                              columnSpacing: 30,
-                              headingRowColor: MaterialStateColor.resolveWith(
-                                  (states) => Colors.grey.shade200),
-                              columns: const [
-                                DataColumn(label: Text("Select")),
-                                DataColumn(label: Text("Name")),
-                                DataColumn(label: Text("Species")),
-                                DataColumn(label: Text("Breed")),
-                                DataColumn(label: Text("Owner")),
-                                DataColumn(label: Text("Actions")),
-                              ],
-                              rows: List.generate(patients.length, (index) {
-                                final p = patients[index];
-                                final isSelected = selectedRows.contains(index);
-                                return DataRow(
-                                  cells: [
-                                    // ✅ Checkbox first (leftmost)
-                                    DataCell(
-                                      Checkbox(
-                                        value: isSelected,
-                                        onChanged: (bool? selected) {
-                                          setState(() {
-                                            if (selected == true) {
-                                              selectedRows.add(index);
-                                            } else {
-                                              selectedRows.remove(index);
-                                            }
-                                          });
-                                        },
-                                      ),
+                        );
+                      }
+
+                      return SingleChildScrollView(
+                        scrollDirection: Axis.vertical,
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: DataTable(
+                            columnSpacing: 30,
+                            headingRowColor: MaterialStateColor.resolveWith(
+                                (states) => Colors.grey.shade200),
+                            columns: const [
+                              DataColumn(label: Text("Select")),
+                              DataColumn(label: Text("Name")),
+                              DataColumn(label: Text("Species")),
+                              DataColumn(label: Text("Breed")),
+                              DataColumn(label: Text("Owner")),
+                              DataColumn(label: Text("Actions")),
+                            ],
+                            rows: docs.map((doc) {
+                              final data =
+                                  doc.data() as Map<String, dynamic>;
+                              final isSelected = selectedDocIds.contains(doc.id);
+
+                              return DataRow(
+                                cells: [
+                                  DataCell(
+                                    Checkbox(
+                                      value: isSelected,
+                                      onChanged: (bool? selected) {
+                                        setState(() {
+                                          if (selected == true) {
+                                            selectedDocIds.add(doc.id);
+                                          } else {
+                                            selectedDocIds.remove(doc.id);
+                                          }
+                                        });
+                                      },
                                     ),
-                                    DataCell(Text(p["Patient Name"] ?? "")),
-                                    DataCell(Text(p["Species"] ?? "")),
-                                    DataCell(Text(p["Breed"] ?? "")),
-                                    DataCell(Text(p["Owner Info"] ?? "")),
-                                    DataCell(
-                                      Row(
-                                        children: [
-                                          IconButton(
-                                            icon: const Icon(Icons.visibility,
-                                                color: Colors.blue),
-                                            onPressed: () => _viewPatientDetails(p),
-                                          ),
-                                          IconButton(
-                                            icon: const Icon(Icons.edit,
-                                                color: Colors.orange),
-                                            onPressed: () => _openPatientForm(
-                                              existingPatient: p,
-                                              index: index,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
+                                  ),
+                                  DataCell(Text(data["Patient Name"] ?? "")),
+                                  DataCell(Text(data["Species"] ?? "")),
+                                  DataCell(Text(data["Breed"] ?? "")),
+                                  DataCell(Text(data["Owner Info"] ?? "")),
+                                  DataCell(
+                                    Row(
+                                      children: [
+                                        IconButton(
+                                          icon: const Icon(Icons.visibility,
+                                              color: Colors.blue),
+                                          onPressed: () =>
+                                              _viewPatientDetails(data),
+                                        ),
+                                        IconButton(
+                                          icon: const Icon(Icons.edit,
+                                              color: Colors.orange),
+                                          onPressed: () => _openPatientForm(
+                                              existingPatient: data,
+                                              docId: doc.id),
+                                        ),
+                                      ],
                                     ),
-                                  ],
-                                );
-                              }),
-                            ),
+                                  ),
+                                ],
+                              );
+                            }).toList(),
                           ),
                         ),
+                      );
+                    },
+                  ),
                 ),
               ],
             ),
@@ -346,7 +329,8 @@ class _PatientsListScreenState extends State<PatientsListScreen> {
       borderRadius: BorderRadius.circular(8),
       child: Container(
         width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
+        padding:
+            const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
         decoration: BoxDecoration(
           color: selected ? Colors.white24 : Colors.transparent,
           borderRadius: BorderRadius.circular(8),

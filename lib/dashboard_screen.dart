@@ -1,16 +1,15 @@
-import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+
 import 'analytics_screen.dart';
 import 'feedback_screen.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'appointments_screen.dart';
 import 'profile_screen.dart';
 import 'login_screen.dart';
 import 'settings_screen.dart';
 import 'patients_list_screen.dart';
 import 'user_prefs.dart';
-import 'feedback_screen.dart';
 
 class Appointment {
   final String petName;
@@ -31,12 +30,14 @@ class Appointment {
 
   factory Appointment.fromJson(Map<String, dynamic> json) {
     return Appointment(
-      petName: json['petName'] as String,
-      purpose: json['purpose'] as String,
-      time: json['time'] as String,
-      owner: json['owner'] as String,
-      status: json['status'] as String,
-      date: DateTime.parse(json['date'] as String),
+      petName: json['petName'] ?? '',
+      purpose: json['purpose'] ?? '',
+      time: json['time'] ?? '',
+      owner: json['owner'] ?? '',
+      status: json['status'] ?? 'Pending',
+      date: (json['date'] is Timestamp)
+          ? (json['date'] as Timestamp).toDate()
+          : DateTime.tryParse(json['date'].toString()) ?? DateTime.now(),
     );
   }
 
@@ -58,34 +59,39 @@ class DashboardScreen extends StatefulWidget {
 }
 
 class _DashboardScreenState extends State<DashboardScreen> {
-  double _averageRating = 4.9;
-  int _ratingCount = 121;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  double _averageRating = 0.0;
+  int _ratingCount = 0;
   int _selectedRating = 0;
 
   List<Appointment> _appointments = [];
+  bool _isLoading = true;
+
   int confirmedCount = 0;
   int pendingCount = 0;
   int declinedCount = 0;
   int completedCount = 0;
 
-  String _name = 'Dr. Sarah Doe';
-  String _location = ' ';
-  String _email = 'sarah@vetclinic.com';
-  String _specialization = 'Pathology';
+  String _name = '';
+  String _location = '';
+  String _email = '';
+  String _specialization = '';
   File? _profileImage;
-  bool _isVerified = false; // 🔹 new field
+  bool _isVerified = false;
 
   @override
   void initState() {
     super.initState();
     _loadProfile();
-    _loadAppointments();
     _loadRatings();
+    _loadAppointments();
   }
 
+  // 🔹 Load user profile from shared prefs
   Future<void> _loadProfile() async {
     final profile = await UserPrefs.loadProfile();
-    final verification = await UserPrefs.loadVerification(); // ✅ new line
+    final verification = await UserPrefs.loadVerification();
     if (!mounted) return;
     setState(() {
       _name = profile.name;
@@ -93,105 +99,120 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _email = profile.email;
       _specialization = profile.specialization;
       _profileImage = profile.profileImage;
-      _isVerified = verification.isVerified; // ✅ fixed line
+      _isVerified = verification.isVerified;
     });
   }
 
-
+  // 🔹 Load Firestore ratings
   Future<void> _loadRatings() async {
-    final r = await UserPrefs.loadRatings();
-    if (!mounted) return;
-    setState(() {
-      _averageRating = r.avg;
-      _ratingCount = r.count;
-      _selectedRating = r.selected;
-    });
+    try {
+      final doc = await _firestore.collection('ratings').doc('overall').get();
+      if (doc.exists) {
+        final data = doc.data()!;
+        setState(() {
+          _averageRating = (data['avg'] ?? 0).toDouble();
+          _ratingCount = (data['count'] ?? 0).toInt();
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading ratings: $e');
+    }
   }
 
+  // 🔹 Load appointments
   Future<void> _loadAppointments() async {
-    final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getStringList('appointments') ?? [];
+    try {
+      setState(() => _isLoading = true);
+      final snapshot = await _firestore.collection('appointments').get();
 
-    if (!mounted) return;
-    setState(() {
-      _appointments =
-          saved.map((e) => Appointment.fromJson(jsonDecode(e))).toList();
-      confirmedCount =
-          _appointments.where((a) => a.status == 'Confirmed').length;
-      pendingCount = _appointments.where((a) => a.status == 'Pending').length;
-      declinedCount =
-          _appointments.where((a) => a.status == 'Declined').length;
-      completedCount =
-          _appointments.where((a) => a.status == 'Completed').length;
-    });
+      final loaded = snapshot.docs.map((doc) {
+        final data = doc.data();
+        return Appointment.fromJson(data);
+      }).toList();
+
+      setState(() {
+        _appointments = loaded;
+        confirmedCount = _appointments.where((a) => a.status == 'Confirmed').length;
+        pendingCount = _appointments.where((a) => a.status == 'Pending').length;
+        declinedCount = _appointments.where((a) => a.status == 'Declined').length;
+        completedCount = _appointments.where((a) => a.status == 'Completed').length;
+        _isLoading = false;
+      });
+    } catch (e) {
+      debugPrint('Error loading appointments: $e');
+      setState(() => _isLoading = false);
+    }
   }
 
-  void _submitRating(int newRating) async {
+  // 🔹 Submit rating and update shared document
+  Future<void> _submitRating(int newRating) async {
+    final docRef = _firestore.collection('ratings').doc('overall');
+    final doc = await _firestore.collection('ratings').doc('overall').get();
+
+
+    double newAvg;
+    int newCount;
+
+    if (doc.exists) {
+      final data = doc.data()!;
+      final oldAvg = (data['avg'] ?? 0).toDouble();
+      final oldCount = (data['count'] ?? 0).toInt();
+      newAvg = ((oldAvg * oldCount) + newRating) / (oldCount + 1);
+      newCount = oldCount + 1;
+    } else {
+      newAvg = newRating.toDouble();
+      newCount = 1;
+    }
+
+    await docRef.set({
+      'avg': newAvg,
+      'count': newCount,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
     setState(() {
-      _averageRating =
-          ((_averageRating * _ratingCount) + newRating) / (_ratingCount + 1);
-      _ratingCount++;
+      _averageRating = newAvg;
+      _ratingCount = newCount;
       _selectedRating = newRating;
     });
-    await UserPrefs.saveRatings(
-      avg: _averageRating,
-      count: _ratingCount,
-      selected: _selectedRating,
-    );
   }
 
+  // 🔹 Handle sidebar navigation
   Future<void> _handleSidebarTap(String label) async {
-    if (label == 'Profile') {
-      await Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => const ProfileScreen()),
-      );
-      await _loadProfile();
-    } else if (label == 'Appointments') {
-      await Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => AppointmentsPage()),
-      );
-    } else if (label == 'Analytics') {
-      await Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => const AnalyticsScreen()),
-      );
-      await _loadAppointments();
-    } else if (label == 'Settings') {
-      await Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => const SettingsScreen()),
-      );
-    } else if (label == 'Log out') {
-      await UserPrefs.clearLoggedIn();
-      if (!mounted) return;
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(
-          builder: (_) => const LoginScreen(
-            registeredEmail: '',
-            registeredPassword: '',
-          ),
-        ),
-        (Route<dynamic> route) => false,
-      );
-    } else if (label == 'Patients') {
-      await Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => const PatientsListScreen()),
-      );
-    } else if (label == 'Feedback') {
-      await Navigator.push(
-        context,
-        MaterialPageRoute(builder: (_) => const VetFeedbackScreen()),
-      );
+    switch (label) {
+      case 'Profile':
+        await Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen()));
+        await _loadProfile();
+        break;
+      case 'Appointments':
+        await Navigator.push(context, MaterialPageRoute(builder: (_) => AppointmentsPage()));
+        break;
+      case 'Analytics':
+        await Navigator.push(context, MaterialPageRoute(builder: (_) => const AnalyticsScreen()));
+        await _loadAppointments();
+        break;
+      case 'Feedback':
+        await Navigator.push(context, MaterialPageRoute(builder: (_) => const VetFeedbackScreen()));
+        break;
+      case 'Settings':
+        await Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
+        break;
+      case 'Patients':
+        await Navigator.push(context, MaterialPageRoute(builder: (_) => const PatientsListScreen()));
+        break;
+      case 'Log out':
+        await UserPrefs.clearLoggedIn();
+        if (!mounted) return;
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const LoginScreen(registeredEmail: '', registeredPassword: '')),
+          (route) => false,
+        );
+        break;
     }
   }
 
   Future<void> _verifyLicense() async {
-    // This is where your Firebase or API verification logic would go.
-    // For now, we simulate success:
     setState(() => _isVerified = true);
     await UserPrefs.saveVerification(isVerified: true);
     ScaffoldMessenger.of(context).showSnackBar(
@@ -199,16 +220,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-
-
   @override
   Widget build(BuildContext context) {
     final today = DateTime.now();
-    final todayAppointments = _appointments.where((appt) {
-      return appt.date.year == today.year &&
-          appt.date.month == today.month &&
-          appt.date.day == today.day;
-    }).toList();
+    final todayAppointments = _appointments.where((appt) =>
+        appt.date.year == today.year &&
+        appt.date.month == today.month &&
+        appt.date.day == today.day).toList();
 
     return Scaffold(
       body: Row(
@@ -224,8 +242,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 Image.asset('assets/furever2.png', width: 140),
                 const SizedBox(height: 40),
                 _buildSidebarItem('Profile', icon: Icons.person),
-                _buildSidebarItem('Dashboard',
-                    icon: Icons.dashboard, selected: true),
+                _buildSidebarItem('Dashboard', icon: Icons.dashboard, selected: true),
                 _buildSidebarItem('Appointments', icon: Icons.event),
                 _buildSidebarItem('Analytics', icon: Icons.analytics),
                 _buildSidebarItem('Patients', icon: Icons.pets),
@@ -237,158 +254,140 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           ),
 
-          // Main
+          // Main content
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  color: const Color(0xFFBDD9A4),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
-                  child: const Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Dashboard',
-                        style: TextStyle(
-                            fontSize: 26, fontWeight: FontWeight.bold),
+                      Container(
+                        color: const Color(0xFFBDD9A4),
+                        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text('Dashboard',
+                                style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        child: SingleChildScrollView(
+                          padding: const EdgeInsets.all(32),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _buildProfileHeader(),
+                              const SizedBox(height: 40),
+                              _buildAppointmentsSection(todayAppointments),
+                            ],
+                          ),
+                        ),
                       ),
                     ],
                   ),
-                ),
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(32),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            CircleAvatar(
-                              radius: 32,
-                              backgroundColor: Colors.grey.shade300,
-                              backgroundImage: _profileImage != null
-                                  ? FileImage(_profileImage!)
-                                  : null,
-                              child: _profileImage == null
-                                  ? const Icon(Icons.person,
-                                      size: 40, color: Colors.white)
-                                  : null,
-                            ),
-                            const SizedBox(width: 20),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(_name,
-                                    style: const TextStyle(
-                                        fontSize: 20,
-                                        fontWeight: FontWeight.bold)),
-                                Text(_location),
-                                Text(_specialization,
-                                    style:
-                                        const TextStyle(color: Color.fromARGB(255, 26, 25, 25))),
-                                const SizedBox(height: 6),
-                                if (_isVerified)
-                                  const Row(
-                                    children: [
-                                      Icon(Icons.verified,
-                                          size: 16, color: Colors.green),
-                                      SizedBox(width: 4),
-                                      Text('License Verified'),
-                                    ],
-                                  )
-                                else
-                                  ElevatedButton(
-                                    onPressed: _verifyLicense,
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor:
-                                          const Color(0xFFEAF086),
-                                      foregroundColor: Colors.black,
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 20, vertical: 8),
-                                    ),
-                                    child: const Text('Verify License'),
-                                  ),
-                              ],
-                            ),
-                            const Spacer(),
-                            ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFFEAF086),
-                                foregroundColor: Colors.black,
-                              ),
-                              onPressed: () async {
-                                await Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                      builder: (_) => const ProfileScreen()),
-                                );
-                                await _loadProfile();
-                              },
-                              child: const Text('Edit Profile'),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 40),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text("Today's Appointments",
-                                style: TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.bold)),
-                            GestureDetector(
-                              onTap: () async {
-                                await Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                      builder: (_) => AppointmentsPage()),
-                                );
-                                await _loadAppointments();
-                              },
-                              child: const Text('View All',
-                                  style: TextStyle(
-                                      color: Color.fromARGB(255, 15, 15, 15))),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 20),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              flex: 3,
-                              child: todayAppointments.isEmpty
-                                  ? const Center(
-                                      child: Text(
-                                        "No appointments today.",
-                                        style: TextStyle(
-                                            fontSize: 16, color: Colors.grey),
-                                      ),
-                                    )
-                                  : Column(
-                                      children: todayAppointments
-                                          .map((appt) => _appointmentCard(appt))
-                                          .toList(),
-                                    ),
-                            ),
-                            const SizedBox(width: 24),
-                            Expanded(
-                              flex: 2,
-                              child: _buildRatingAndSummaryBox(),
-                            ),
-                          ],
-                        )
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
           ),
         ],
       ),
+    );
+  }
+
+  // 🧩 UI Helper Widgets
+
+  Widget _buildProfileHeader() {
+    return Row(
+      children: [
+        CircleAvatar(
+          radius: 32,
+          backgroundColor: Colors.grey.shade300,
+          backgroundImage: _profileImage != null ? FileImage(_profileImage!) : null,
+          child: _profileImage == null
+              ? const Icon(Icons.person, size: 40, color: Colors.white)
+              : null,
+        ),
+        const SizedBox(width: 20),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(_name, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            Text(_location),
+            Text(_specialization, style: const TextStyle(color: Colors.black87)),
+            const SizedBox(height: 6),
+            if (_isVerified)
+              const Row(
+                children: [
+                  Icon(Icons.verified, size: 16, color: Colors.green),
+                  SizedBox(width: 4),
+                  Text('License Verified'),
+                ],
+              )
+            else
+              ElevatedButton(
+                onPressed: _verifyLicense,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFEAF086),
+                  foregroundColor: Colors.black,
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                ),
+                child: const Text('Verify License'),
+              ),
+          ],
+        ),
+        const Spacer(),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFFEAF086),
+            foregroundColor: Colors.black,
+          ),
+          onPressed: () async {
+            await Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen()));
+            await _loadProfile();
+          },
+          child: const Text('Edit Profile'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAppointmentsSection(List<Appointment> todayAppointments) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text("Today's Appointments",
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+            GestureDetector(
+              onTap: () async {
+                await Navigator.push(context, MaterialPageRoute(builder: (_) => AppointmentsPage()));
+                await _loadAppointments();
+              },
+              child: const Text('View All', style: TextStyle(color: Colors.black)),
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              flex: 3,
+              child: todayAppointments.isEmpty
+                  ? const Center(
+                      child: Text("No appointments today.",
+                          style: TextStyle(fontSize: 16, color: Colors.grey)),
+                    )
+                  : Column(
+                      children: todayAppointments.map((appt) => _appointmentCard(appt)).toList(),
+                    ),
+            ),
+            const SizedBox(width: 24),
+            Expanded(flex: 2, child: _buildRatingAndSummaryBox()),
+          ],
+        )
+      ],
     );
   }
 
@@ -401,11 +400,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
       case "Declined":
         statusColor = Colors.red;
         break;
-      case "Canceled":
-        statusColor = Colors.orange;
-        break;
       case "Completed":
         statusColor = Colors.blue;
+        break;
+      case "Canceled":
+        statusColor = Colors.orange;
         break;
       default:
         statusColor = Colors.yellow.shade700;
@@ -420,9 +419,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(appt.petName,
-                style:
-                    const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            Text(appt.petName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
             Text(appt.purpose),
             const SizedBox(height: 10),
             Row(children: [
@@ -442,8 +439,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               children: [
                 TextButton(onPressed: () {}, child: const Text('View Details')),
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
                     color: statusColor.withOpacity(0.2),
                     borderRadius: BorderRadius.circular(20),
@@ -458,94 +454,74 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildRatingAndSummaryBox() {
-    return Column(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            border: Border.all(color: Colors.grey.shade300),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Column(
-            children: [
-              Text(_averageRating.toStringAsFixed(1),
-                  style: const TextStyle(
-                      fontSize: 42, fontWeight: FontWeight.bold)),
-              const Icon(Icons.star, color: Colors.green, size: 30),
-              const Text('Rating'),
-              Text('$_ratingCount Client Feedback',
-                  style: const TextStyle(color: Colors.grey)),
-              const Divider(),
-              const Text('Submit your rating:',
-                  style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(5, (index) {
-                  final starIndex = index + 1;
-                  return IconButton(
-                    icon: Icon(
-                      Icons.star,
-                      color: starIndex <= _selectedRating
-                          ? Colors.amber
-                          : Colors.grey.shade400,
-                    ),
-                    onPressed: () => _submitRating(starIndex),
-                  );
-                }),
-              ),
-            ],
-          ),
+Widget _buildRatingAndSummaryBox() {
+  return Column(
+    children: [
+      Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.grey.shade300),
+          borderRadius: BorderRadius.circular(12),
         ),
-        const SizedBox(height: 20),
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            border: Border.all(color: Colors.grey.shade300),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('Appointment Summary',
-                  style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  _statusCount('Pending', pendingCount, color: Colors.orange),
-                  _statusCount('Confirmed', confirmedCount, color: Colors.green),
-                  _statusCount('Declined', declinedCount, color: Colors.red),
-                  _statusCount('Completed', completedCount, color: Colors.blue),
-                ],
-              ),
-            ],
-          ),
+        child: Column(
+          children: [
+            Text(
+              _averageRating.toStringAsFixed(1),
+              style: const TextStyle(fontSize: 42, fontWeight: FontWeight.bold),
+            ),
+            const Icon(Icons.star, color: Colors.green, size: 30),
+            const Text('Overall Rating'),
+            Text(
+              '$_ratingCount Client Feedbacks',
+              style: const TextStyle(color: Colors.grey),
+            ),
+          ],
         ),
-      ],
-    );
-  }
+      ),
+      const SizedBox(height: 20),
+      Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.grey.shade300),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Appointment Summary',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _statusCount('Pending', pendingCount, color: Colors.orange),
+                _statusCount('Confirmed', confirmedCount, color: Colors.green),
+                _statusCount('Declined', declinedCount, color: Colors.red),
+                _statusCount('Completed', completedCount, color: Colors.blue),
+              ],
+            ),
+          ],
+        ),
+      ),
+    ],
+  );
+}
+
 
   Widget _statusCount(String label, int count, {required Color color}) {
     return Column(
       children: [
-        Text(
-          count.toString(),
-          style: TextStyle(
-            fontSize: 20,
-            fontWeight: FontWeight.bold,
-            color: color,
-          ),
-        ),
+        Text(count.toString(),
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color)),
         Text(label),
       ],
     );
   }
 
-  Widget _buildSidebarItem(String label,
-      {IconData? icon, bool selected = false}) {
+  Widget _buildSidebarItem(String label, {IconData? icon, bool selected = false}) {
     return InkWell(
       onTap: () => _handleSidebarTap(label),
       borderRadius: BorderRadius.circular(8),

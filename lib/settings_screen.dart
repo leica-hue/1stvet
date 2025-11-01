@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -9,142 +10,117 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  bool _darkMode = false;
-  bool _notificationsEnabled = true;
+
 
   @override
   void initState() {
     super.initState();
-    _loadPreferences();
   }
 
-  Future<void> _loadPreferences() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() {
-      _darkMode = prefs.getBool('darkMode') ?? false;
-      _notificationsEnabled = prefs.getBool('notificationsEnabled') ?? true;
-    });
-  }
 
-  Future<void> _savePreferences() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('darkMode', _darkMode);
-    await prefs.setBool('notificationsEnabled', _notificationsEnabled);
-  }
+void _changePasswordDialog() {
+  final oldPasswordController = TextEditingController();
+  final newPasswordController = TextEditingController();
+  final confirmPasswordController = TextEditingController();
+  final user = FirebaseAuth.instance.currentUser;
 
-  void _changePasswordDialog() {
-    final oldPasswordController = TextEditingController();
-    final newPasswordController = TextEditingController();
-    final confirmPasswordController = TextEditingController();
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Change Password"),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: oldPasswordController,
-              obscureText: true,
-              decoration: const InputDecoration(labelText: "Old Password"),
-            ),
-            TextField(
-              controller: newPasswordController,
-              obscureText: true,
-              decoration: const InputDecoration(labelText: "New Password"),
-            ),
-            TextField(
-              controller: confirmPasswordController,
-              obscureText: true,
-              decoration: const InputDecoration(labelText: "Confirm Password"),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("Cancel"),
+  showDialog(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text("Change Password"),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: oldPasswordController,
+            obscureText: true,
+            decoration: const InputDecoration(labelText: "Old Password"),
           ),
-          ElevatedButton(
-            onPressed: () {
-              if (newPasswordController.text != confirmPasswordController.text) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text("Passwords do not match!")),
-                );
-                return;
-              }
-              // TODO: Connect to real password change API here
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text("Password changed successfully!")),
-              );
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF728D5A),
-              foregroundColor: Colors.white,
-            ),
-            child: const Text("Save"),
+          TextField(
+            controller: newPasswordController,
+            obscureText: true,
+            decoration: const InputDecoration(labelText: "New Password"),
+          ),
+          TextField(
+            controller: confirmPasswordController,
+            obscureText: true,
+            decoration: const InputDecoration(labelText: "Confirm Password"),
           ),
         ],
       ),
-    );
-  }
-
-  void _notificationDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Notification Preferences"),
-        content: SwitchListTile(
-          title: const Text("Enable Notifications"),
-          value: _notificationsEnabled,
-          activeColor: const Color(0xFF728D5A),
-          onChanged: (val) {
-            setState(() {
-              _notificationsEnabled = val;
-            });
-            _savePreferences();
-            Navigator.pop(context);
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(val
-                    ? "Notifications enabled"
-                    : "Notifications disabled"),
-              ),
-            );
-          },
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text("Cancel"),
         ),
-      ),
-    );
-  }
+        ElevatedButton(
+          onPressed: () async {
+            if (newPasswordController.text != confirmPasswordController.text) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text("Passwords do not match!")),
+              );
+              return;
+            }
 
-  void _themeDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Theme Settings"),
-        content: SwitchListTile(
-          title: const Text("Dark Mode"),
-          value: _darkMode,
-          activeColor: const Color(0xFF728D5A),
-          onChanged: (val) {
-            setState(() {
-              _darkMode = val;
-            });
-            _savePreferences();
-            Navigator.pop(context);
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content:
-                    Text(val ? "Dark mode enabled" : "Light mode enabled"),
-              ),
-            );
+            if (user == null || user.email == null) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text("No user logged in!")),
+              );
+              return;
+            }
+
+            try {
+              // 🔹 Reauthenticate the user before changing password
+              final cred = EmailAuthProvider.credential(
+                email: user.email!,
+                password: oldPasswordController.text,
+              );
+
+              await user.reauthenticateWithCredential(cred);
+
+              // 🔹 Update password in Firebase Auth
+              await user.updatePassword(newPasswordController.text);
+
+              
+
+              if (context.mounted) {
+                Navigator.pop(context);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text("Password changed successfully!"),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              }
+            } on FirebaseAuthException catch (e) {
+              String errorMessage = "Error: ${e.message}";
+              if (e.code == 'wrong-password') {
+                errorMessage = "Old password is incorrect.";
+              } else if (e.code == 'weak-password') {
+                errorMessage = "New password is too weak.";
+              } else if (e.code == 'requires-recent-login') {
+                errorMessage = "Please log in again before changing password.";
+              }
+
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(errorMessage),
+                  backgroundColor: Colors.red,
+                ),
+              );
+            }
           },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: const Color(0xFF728D5A),
+            foregroundColor: Colors.white,
+          ),
+          child: const Text("Save"),
         ),
-      ),
-    );
-  }
+      ],
+    ),
+  );
+}
+
 
   void _aboutApp() {
     showAboutDialog(
@@ -186,16 +162,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
             leading: const Icon(Icons.lock),
             title: const Text('Change Password'),
             onTap: _changePasswordDialog,
-          ),
-          ListTile(
-            leading: const Icon(Icons.notifications),
-            title: const Text('Notification Preferences'),
-            onTap: _notificationDialog,
-          ),
-          ListTile(
-            leading: const Icon(Icons.color_lens),
-            title: const Text('Theme'),
-            onTap: _themeDialog,
           ),
           const Divider(height: 30),
           const Text(

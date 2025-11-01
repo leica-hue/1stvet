@@ -41,7 +41,10 @@ dependencies:
   url_launcher: ^6.3.0
   flutter_facebook_auth: ^6.0.4
   google_sign_in: ^6.2.1
-  flutter_zoom_sdk: ^2.0.1
+  flutter_zoom_sdk: ^1.1.0+4
+  firebase_analytics: ^11.0.0
+  firebase_database: ^11.0.3
+
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.

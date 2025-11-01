@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:convert';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class VetFeedbackScreen extends StatefulWidget {
   const VetFeedbackScreen({super.key});
@@ -12,53 +11,27 @@ class VetFeedbackScreen extends StatefulWidget {
 class _VetFeedbackScreenState extends State<VetFeedbackScreen> {
   final Color headerColor = const Color(0xFFBDD9A4);
   final Color accentGreen = const Color(0xFF8DBF67);
-  List<Map<String, String>> feedbackList = [];
-  List<Map<String, String>> filteredList = [];
 
   String _sortOption = "Newest First";
-  final TextEditingController _searchCtrl = TextEditingController();
+  String _searchQuery = "";
 
-  @override
-  void initState() {
-    super.initState();
-    _loadFeedback();
-  }
+  final CollectionReference feedbackCollection =
+      FirebaseFirestore.instance.collection('feedback');
 
-  Future<void> _loadFeedback() async {
-    final prefs = await SharedPreferences.getInstance();
-    final storedData = prefs.getString('feedback_list');
-    if (storedData != null) {
-      setState(() {
-        feedbackList = List<Map<String, String>>.from(jsonDecode(storedData));
-        filteredList = List.from(feedbackList);
-        _applySort();
-      });
+  // Helper function to safely get a DateTime from Firestore data
+  DateTime? _getDateFromData(dynamic dateValue) {
+    if (dateValue is Timestamp) {
+      return dateValue.toDate();
     }
+    // If it's not a Timestamp, return null or handle appropriately
+    return null;
   }
 
-  void _applySort() {
-    setState(() {
-      if (_sortOption == "Newest First") {
-        filteredList.sort((a, b) => (b["Date"] ?? "").compareTo(a["Date"] ?? ""));
-      } else if (_sortOption == "Oldest First") {
-        filteredList.sort((a, b) => (a["Date"] ?? "").compareTo(b["Date"] ?? ""));
-      } else if (_sortOption == "Name (A–Z)") {
-        filteredList.sort((a, b) => (a["Name"] ?? "").compareTo(b["Name"] ?? ""));
-      } else if (_sortOption == "Name (Z–A)") {
-        filteredList.sort((a, b) => (b["Name"] ?? "").compareTo(a["Name"] ?? ""));
-      }
-    });
-  }
-
-  void _filterSearch(String query) {
-    setState(() {
-      filteredList = feedbackList
-          .where((fb) =>
-              fb["Name"]!.toLowerCase().contains(query.toLowerCase()) ||
-              fb["Feedback"]!.toLowerCase().contains(query.toLowerCase()))
-          .toList();
-      _applySort();
-    });
+  // Helper function to format the date for display
+  String _formatDate(DateTime? date) {
+    if (date == null) return "N/A";
+    // Example: Format as 'MM/dd/yyyy'
+    return '${date.month.toString().padLeft(2, '0')}/${date.day.toString().padLeft(2, '0')}/${date.year}';
   }
 
   @override
@@ -82,7 +55,7 @@ class _VetFeedbackScreenState extends State<VetFeedbackScreen> {
                   spreadRadius: 2,
                   blurRadius: 5,
                   offset: const Offset(0, 3),
-                )
+                ),
               ],
             ),
             padding: const EdgeInsets.symmetric(vertical: 25, horizontal: 20),
@@ -90,9 +63,7 @@ class _VetFeedbackScreenState extends State<VetFeedbackScreen> {
               children: [
                 IconButton(
                   icon: const Icon(Icons.arrow_back, color: Colors.black87),
-                  onPressed: () {
-                    Navigator.pop(context);
-                  },
+                  onPressed: () => Navigator.pop(context),
                 ),
                 const SizedBox(width: 8),
                 const Text(
@@ -107,23 +78,19 @@ class _VetFeedbackScreenState extends State<VetFeedbackScreen> {
             ),
           ),
 
-          // Search + Sort Controls
+          // Search + Sort
           Padding(
             padding: const EdgeInsets.fromLTRB(20, 20, 20, 10),
             child: Row(
               children: [
-                // Search Bar
                 Expanded(
                   child: TextField(
-                    controller: _searchCtrl,
-                    onChanged: _filterSearch,
+                    onChanged: (value) => setState(() => _searchQuery = value),
                     decoration: InputDecoration(
                       hintText: "Search by client name or feedback...",
                       prefixIcon: const Icon(Icons.search),
                       filled: true,
                       fillColor: Colors.white,
-                      contentPadding:
-                          const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
                         borderSide: BorderSide(color: Colors.grey.shade300),
@@ -132,8 +99,6 @@ class _VetFeedbackScreenState extends State<VetFeedbackScreen> {
                   ),
                 ),
                 const SizedBox(width: 12),
-
-                // Sort Dropdown
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12),
                   decoration: BoxDecoration(
@@ -155,12 +120,7 @@ class _VetFeedbackScreenState extends State<VetFeedbackScreen> {
                             value: "Name (Z–A)", child: Text("Name (Z–A)")),
                       ],
                       onChanged: (value) {
-                        if (value != null) {
-                          setState(() {
-                            _sortOption = value;
-                            _applySort();
-                          });
-                        }
+                        if (value != null) setState(() => _sortOption = value);
                       },
                     ),
                   ),
@@ -169,72 +129,135 @@ class _VetFeedbackScreenState extends State<VetFeedbackScreen> {
             ),
           ),
 
-          // Feedback List
+          // Real-time Firestore feedbacks
           Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: filteredList.isEmpty
-                  ? const Center(
-                      child: Text(
-                        "No client feedback yet.",
-                        style: TextStyle(
-                          fontSize: 16,
-                          color: Colors.grey,
-                          fontStyle: FontStyle.italic,
+            child: StreamBuilder<QuerySnapshot>(
+              stream: feedbackCollection.snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                  return const Center(
+                    child: Text(
+                      "No client feedback yet.",
+                      style: TextStyle(
+                        fontSize: 16,
+                        color: Colors.grey,
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+                  );
+                }
+
+                // 🛠️ FIX 1: Convert Timestamp to DateTime during mapping
+                List<Map<String, dynamic>> feedbackList = snapshot.data!.docs.map((doc) {
+                  final data = doc.data() as Map<String, dynamic>;
+                  return {
+                    "id": doc.id,
+                    "Name": data["Name"] ?? "",
+                    "Feedback": data["Feedback"] ?? "",
+                    // Convert Timestamp to DateTime (or null if missing/wrong type)
+                    "Date": _getDateFromData(data["date"]), 
+                  };
+                }).toList();
+
+                // Search filter
+                feedbackList = feedbackList
+                    .where((fb) {
+                      final name =
+                          fb["Name"]?.toString().toLowerCase().trim() ?? "";
+                      final feedback =
+                          fb["Feedback"]?.toString().toLowerCase().trim() ?? "";
+                      final query = _searchQuery.toLowerCase().trim();
+                      return name.contains(query) || feedback.contains(query);
+                    })
+                    .toList();
+
+                // 🛠️ FIX 2: Use DateTime.compareTo() for date sorting
+                feedbackList.sort((a, b) {
+                  switch (_sortOption) {
+                    case "Newest First":
+                      // Use DateTime.compareTo() for correct date ordering
+                      final dateA = a["Date"] as DateTime?;
+                      final dateB = b["Date"] as DateTime?;
+                      if (dateA == null && dateB == null) return 0;
+                      if (dateA == null) return 1; // Put null dates last
+                      if (dateB == null) return -1; // Put null dates last
+                      return dateB.compareTo(dateA); // Descending (Newest first)
+                      
+                    case "Oldest First":
+                      // Use DateTime.compareTo()
+                      final dateA = a["Date"] as DateTime?;
+                      final dateB = b["Date"] as DateTime?;
+                      if (dateA == null && dateB == null) return 0;
+                      if (dateA == null) return 1;
+                      if (dateB == null) return -1;
+                      return dateA.compareTo(dateB); // Ascending (Oldest first)
+
+                    case "Name (A–Z)":
+                      return (a["Name"] ?? "").compareTo(b["Name"] ?? "");
+                    case "Name (Z–A)":
+                      return (b["Name"] ?? "").compareTo(a["Name"] ?? "");
+                    default:
+                      return 0;
+                  }
+                });
+
+                return ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  itemCount: feedbackList.length,
+                  itemBuilder: (context, index) {
+                    final fb = feedbackList[index];
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 14),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(15),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black12.withOpacity(0.08),
+                            blurRadius: 6,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
+                      ),
+                      child: ListTile(
+                        leading: CircleAvatar(
+                          backgroundColor: accentGreen.withOpacity(0.8),
+                          child: const Icon(Icons.person,
+                              color: Colors.white, size: 22),
+                        ),
+                        title: Text(
+                          fb["Name"] ?? "",
+                          style: const TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                        subtitle: Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text(
+                            fb["Feedback"] ?? "",
+                            style: const TextStyle(
+                              fontSize: 14,
+                              height: 1.4,
+                            ),
+                          ),
+                        ),
+                        trailing: Text(
+                          // 🛠️ FIX 3: Use the formatter for display
+                          _formatDate(fb["Date"] as DateTime?),
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey,
+                          ),
                         ),
                       ),
-                    )
-                  : ListView.builder(
-                      itemCount: filteredList.length,
-                      itemBuilder: (context, index) {
-                        final fb = filteredList[index];
-                        return Container(
-                          margin: const EdgeInsets.only(bottom: 14),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(15),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black12.withOpacity(0.08),
-                                blurRadius: 6,
-                                offset: const Offset(0, 3),
-                              ),
-                            ],
-                          ),
-                          child: ListTile(
-                            leading: CircleAvatar(
-                              backgroundColor: accentGreen.withOpacity(0.8),
-                              child: const Icon(Icons.person,
-                                  color: Colors.white, size: 22),
-                            ),
-                            title: Text(
-                              fb["Name"] ?? "",
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 16,
-                              ),
-                            ),
-                            subtitle: Padding(
-                              padding: const EdgeInsets.only(top: 6),
-                              child: Text(
-                                fb["Feedback"] ?? "",
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  height: 1.4,
-                                ),
-                              ),
-                            ),
-                            trailing: Text(
-                              fb["Date"] ?? "",
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: Colors.grey,
-                              ),
-                            ),
-                          ),
-                        );
-                      },
-                    ),
+                    );
+                  },
+                );
+              },
             ),
           ),
         ],

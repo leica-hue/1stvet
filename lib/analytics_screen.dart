@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class AnalyticsScreen extends StatefulWidget {
   const AnalyticsScreen({super.key});
@@ -9,22 +10,59 @@ class AnalyticsScreen extends StatefulWidget {
 }
 
 class _AnalyticsScreenState extends State<AnalyticsScreen> {
-  // Dummy data for demonstration — can be replaced with real database data
-  int totalPatients = 42;
-  int totalAppointments = 128;
-  int totalFeedbacks = 19;
-  double averageRating = 4.6;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
+  int totalPatients = 0;
+  int totalAppointments = 0;
+  int totalFeedbacks = 0;
+  double averageRating = 0.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchAnalyticsData();
+    _listenToRatings(); // ✅ Listen to shared ratings doc
+  }
+
+  void _fetchAnalyticsData() {
+    // Patients collection
+    _firestore.collection('patients').snapshots().listen((snapshot) {
+      setState(() {
+        totalPatients = snapshot.docs.length;
+      });
+    });
+
+    // Appointments collection
+    _firestore.collection('appointments').snapshots().listen((snapshot) {
+      setState(() {
+        totalAppointments = snapshot.docs.length;
+      });
+    });
+  }
+
+  // ✅ Real-time listener for the ratings/overall doc
+  void _listenToRatings() {
+    _firestore.collection('ratings').doc('overall').snapshots().listen((doc) {
+      if (doc.exists) {
+        final data = doc.data()!;
+        setState(() {
+          averageRating = (data['avg'] ?? 0).toDouble();
+          totalFeedbacks = (data['count'] ?? 0).toInt();
+        });
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    const Color headerColor = Color(0xFFBDD9A4);
+    const headerColor = Color(0xFFBDD9A4);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header bar with back button
+          // Header
           Container(
             color: headerColor,
             width: double.infinity,
@@ -38,22 +76,18 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                 const SizedBox(width: 8),
                 const Text(
                   "Vet Analytics Overview",
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
                 ),
               ],
             ),
           ),
 
-          // Main content
+          // Main Content
           Expanded(
             child: Padding(
               padding: const EdgeInsets.all(24),
               child: ListView(
                 children: [
-                  // Summary cards
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -64,16 +98,14 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                       _analyticsCard("Feedback", "$totalFeedbacks",
                           Icons.message, Colors.orange),
                       _analyticsCard(
-                          "Avg Rating",
-                          "${averageRating.toStringAsFixed(1)} ⭐",
-                          Icons.star,
-                          Colors.amber),
+                        "Avg Rating",
+                        "${averageRating.toStringAsFixed(1)} ⭐",
+                        Icons.star,
+                        Colors.amber,
+                      ),
                     ],
                   ),
-
                   const SizedBox(height: 40),
-
-                  // Chart Section
                   Card(
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(15)),
@@ -88,37 +120,14 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                             style: TextStyle(
                                 fontSize: 20, fontWeight: FontWeight.bold),
                           ),
-                          const SizedBox(height: 300, child: _AnalyticsChart()),
-                        ],
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 40),
-
-                  // Feedback Summary
-                  Card(
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(15)),
-                    elevation: 4,
-                    child: Padding(
-                      padding: const EdgeInsets.all(20),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            "Recent Feedback Summary",
-                            style: TextStyle(
-                                fontSize: 20, fontWeight: FontWeight.bold),
-                          ),
-                          const SizedBox(height: 15),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceAround,
-                            children: [
-                              _feedbackStat("Positive", 12, Colors.green),
-                              _feedbackStat("Neutral", 5, Colors.orange),
-                              _feedbackStat("Negative", 2, Colors.red),
-                            ],
+                          const SizedBox(height: 20),
+                          SizedBox(
+                            height: 300,
+                            child: _AnalyticsChart(
+                              patients: totalPatients.toDouble(),
+                              appointments: totalAppointments.toDouble(),
+                              feedback: totalFeedbacks.toDouble(),
+                            ),
                           ),
                         ],
                       ),
@@ -147,7 +156,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
               color: Colors.grey.shade300,
               blurRadius: 5,
               offset: const Offset(0, 3),
-            )
+            ),
           ],
         ),
         child: Column(
@@ -155,63 +164,75 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
           children: [
             Icon(icon, color: color, size: 36),
             const SizedBox(height: 10),
-            Text(title,
-                style: const TextStyle(
-                    fontSize: 16,
-                    color: Colors.black54,
-                    fontWeight: FontWeight.w500)),
+            Text(
+              title,
+              style: const TextStyle(
+                  fontSize: 16,
+                  color: Colors.black54,
+                  fontWeight: FontWeight.w500),
+            ),
             const SizedBox(height: 4),
-            Text(value,
-                style:
-                    const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+            Text(
+              value,
+              style:
+                  const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+            ),
           ],
         ),
       ),
     );
   }
-
-  Widget _feedbackStat(String type, int count, Color color) {
-    return Column(
-      children: [
-        Text(
-          type,
-          style: TextStyle(fontSize: 16, color: color),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          "$count",
-          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-        ),
-      ],
-    );
-  }
 }
 
-// Chart widget
 class _AnalyticsChart extends StatelessWidget {
-  const _AnalyticsChart();
+  final double patients;
+  final double appointments;
+  final double feedback;
+
+  const _AnalyticsChart({
+    required this.patients,
+    required this.appointments,
+    required this.feedback,
+  });
 
   @override
   Widget build(BuildContext context) {
+    final maxY = [patients, appointments, feedback].reduce((a, b) => a > b ? a : b);
+    final safeMaxY = (maxY * 1.2).clamp(10.0, double.infinity);
+
     return BarChart(
       BarChartData(
+        alignment: BarChartAlignment.spaceAround,
+        maxY: safeMaxY,
         gridData: const FlGridData(show: false),
         borderData: FlBorderData(show: false),
         titlesData: FlTitlesData(
-          leftTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
           topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          leftTitles: AxisTitles(
+            sideTitles: SideTitles(
+              showTitles: true,
+              getTitlesWidget: (value, meta) => Text(
+                value.toInt().toString(),
+                style: const TextStyle(fontSize: 10, color: Colors.black54),
+              ),
+              interval: (safeMaxY / 4).floorToDouble().clamp(1.0, double.infinity),
+              reservedSize: 30,
+            ),
+          ),
           bottomTitles: AxisTitles(
             sideTitles: SideTitles(
               showTitles: true,
-              getTitlesWidget: (double value, TitleMeta meta) {
+              reservedSize: 30,
+              getTitlesWidget: (value, meta) {
+                const style = TextStyle(fontSize: 12, fontWeight: FontWeight.bold);
                 switch (value.toInt()) {
                   case 0:
-                    return const Text("Patients");
+                    return const Text("Patients", style: style);
                   case 1:
-                    return const Text("Appointments");
+                    return const Text("Appoint.", style: style);
                   case 2:
-                    return const Text("Feedback");
+                    return const Text("Feedback", style: style);
                   default:
                     return const Text("");
                 }
@@ -220,15 +241,15 @@ class _AnalyticsChart extends StatelessWidget {
           ),
         ),
         barGroups: [
-          BarChartGroupData(x: 0, barRods: [
-            BarChartRodData(toY: 42, color: Colors.green)
-          ]),
-          BarChartGroupData(x: 1, barRods: [
-            BarChartRodData(toY: 128, color: Colors.blue)
-          ]),
-          BarChartGroupData(x: 2, barRods: [
-            BarChartRodData(toY: 19, color: Colors.orange)
-          ]),
+          BarChartGroupData(
+              x: 0,
+              barRods: [BarChartRodData(toY: patients, color: Colors.green, width: 24, borderRadius: BorderRadius.circular(4))]),
+          BarChartGroupData(
+              x: 1,
+              barRods: [BarChartRodData(toY: appointments, color: Colors.blue, width: 24, borderRadius: BorderRadius.circular(4))]),
+          BarChartGroupData(
+              x: 2,
+              barRods: [BarChartRodData(toY: feedback, color: Colors.orange, width: 24, borderRadius: BorderRadius.circular(4))]),
         ],
       ),
     );

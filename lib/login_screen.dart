@@ -135,7 +135,7 @@ class _LoginScreenState extends State<LoginScreen> {
           message = 'Invalid email address.';
           break;
         default:
-          message = 'Error: ${e.message}';
+          message = 'Wrong Password provided.';
       }
 
       ScaffoldMessenger.of(context)

@@ -1,18 +1,22 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter_application_1/analytics_screen.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
 import 'package:table_calendar/table_calendar.dart';
-
 import 'dashboard_screen.dart';
 import 'appointments_table_view.dart';
 import 'patients_list_screen.dart';
 import 'profile_screen.dart';
 import 'feedback_screen.dart';
 import 'zoom_meeting_screen.dart';
-import 'vet_history_notes_screen.dart'; // ✅ NEW IMPORT
+import 'vet_history_notes_screen.dart';
+import 'analytics_screen.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
   runApp(const FureverHealthyApp());
 }
 
@@ -21,24 +25,25 @@ class FureverHealthyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    return const MaterialApp(
       debugShowCheckedModeBanner: false,
       home: AppointmentsPage(),
     );
   }
 }
 
-/// Appointment Model
 class Appointment {
+  String id;
   DateTime date;
   String petName;
   String purpose;
   String time;
   String owner;
   String status;
-  String vetNotes; // ✅ Added for Vet Notes
+  String vetNotes;
 
   Appointment({
+    required this.id,
     required this.date,
     required this.petName,
     required this.purpose,
@@ -49,7 +54,7 @@ class Appointment {
   });
 
   Map<String, dynamic> toJson() => {
-        'date': date.toIso8601String(),
+        'date': date,
         'petName': petName,
         'purpose': purpose,
         'time': time,
@@ -58,18 +63,24 @@ class Appointment {
         'vetNotes': vetNotes,
       };
 
-  static Appointment fromJson(Map<String, dynamic> json) => Appointment(
-        date: DateTime.parse(json['date']),
-        petName: json['petName'],
-        purpose: json['purpose'],
-        time: json['time'],
-        owner: json['owner'],
-        status: json['status'],
-        vetNotes: json['vetNotes'] ?? "",
-      );
+  static Appointment fromDoc(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
+    return Appointment(
+      id: doc.id,
+      date: (data['date'] as Timestamp).toDate(),
+      petName: data['petName'] ?? '',
+      purpose: data['purpose'] ?? '',
+      time: data['time'] ?? '',
+      owner: data['owner'] ?? '',
+      status: data['status'] ?? 'Pending',
+      vetNotes: data['vetNotes'] ?? '',
+    );
+  }
 }
 
 class AppointmentsPage extends StatefulWidget {
+  const AppointmentsPage({super.key});
+
   @override
   State<AppointmentsPage> createState() => _AppointmentsPageState();
 }
@@ -77,49 +88,28 @@ class AppointmentsPage extends StatefulWidget {
 class _AppointmentsPageState extends State<AppointmentsPage> {
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
-
-  List<DateTime> _bookedDates = [];
-  List<Appointment> _appointments = [];
-
   String _selectedFilter = "All";
 
-  @override
-  void initState() {
-    super.initState();
-    _loadAppointments();
-  }
-
-  Future<void> _loadAppointments() async {
-    final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getStringList('appointments') ?? [];
-    setState(() {
-      _appointments =
-          saved.map((e) => Appointment.fromJson(jsonDecode(e))).toList();
-      _bookedDates = _appointments.map((e) => e.date).toList();
-    });
-  }
-
-  Future<void> _saveAppointments() async {
-    final prefs = await SharedPreferences.getInstance();
-    final data = _appointments.map((a) => jsonEncode(a.toJson())).toList();
-    await prefs.setStringList('appointments', data);
-  }
-
-  Future<void> _clearAppointments() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('appointments');
-    setState(() {
-      _appointments.clear();
-      _bookedDates.clear();
-    });
+  Widget _tabButton(String label) {
+    final isSelected = _selectedFilter == label;
+    return Padding(
+      padding: const EdgeInsets.only(right: 10),
+      child: ElevatedButton(
+        onPressed: () {
+          setState(() => _selectedFilter = label);
+        },
+        style: ElevatedButton.styleFrom(
+          backgroundColor:
+              isSelected ? const Color(0xFF728D5A) : Colors.grey.shade300,
+          foregroundColor: isSelected ? Colors.white : Colors.black,
+        ),
+        child: Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final filteredAppointments = _appointments.where((appt) {
-      return _selectedFilter == "All" || appt.status == _selectedFilter;
-    }).toList();
-
     return Scaffold(
       body: Row(
         children: [
@@ -128,7 +118,7 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // HEADER
+                // Header
                 Container(
                   width: double.infinity,
                   color: const Color(0xFFBDD9A4),
@@ -137,121 +127,139 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                   child: const Text(
                     "Appointments",
                     style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black,
-                    ),
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black),
                   ),
                 ),
 
-                // MAIN CONTENT
+                // Main content
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.all(24.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // FILTER TABS + BUTTONS
-                        Row(
+                    child: StreamBuilder<QuerySnapshot>(
+                      stream: FirebaseFirestore.instance
+                          .collection('appointments')
+                          .orderBy('date', descending: false)
+                          .snapshots(),
+                      builder: (context, snapshot) {
+                        if (snapshot.connectionState ==
+                            ConnectionState.waiting) {
+                          return const Center(
+                              child: CircularProgressIndicator());
+                        }
+
+                        if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                          return const Center(
+                              child: Text("No appointments found."));
+                        }
+
+                        final appointments = snapshot.data!.docs
+                            .map((doc) => Appointment.fromDoc(doc))
+                            .toList();
+
+                        final filteredAppointments = appointments.where((appt) {
+                          return _selectedFilter == "All" ||
+                              appt.status == _selectedFilter;
+                        }).toList();
+
+                        final bookedDates =
+                            appointments.map((e) => e.date).toList();
+
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _tabButton("All"),
-                            _tabButton("Pending"),
-                            _tabButton("Confirmed"),
-                            _tabButton("Declined"),
-                            _tabButton("Completed"),
-                            const Spacer(),
-                            // ✅ Table View Button
-                            ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF728D5A),
-                                foregroundColor: Colors.white,
-                              ),
-                              onPressed: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => AppointmentsTableView(
-                                        appointments: _appointments),
+                            Row(
+                              children: [
+                                _tabButton("All"),
+                                _tabButton("Pending"),
+                                _tabButton("Confirmed"),
+                                _tabButton("Declined"),
+                                _tabButton("Completed"),
+                                const Spacer(),
+                                ElevatedButton(
+                                  style: ElevatedButton.styleFrom(
+                                      backgroundColor:
+                                          const Color(0xFF728D5A),
+                                      foregroundColor: Colors.white),
+                                  onPressed: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => AppointmentsTableView(
+                                            appointments: appointments),
+                                      ),
+                                    );
+                                  },
+                                  child: const Text("Table View"),
+                                ),
+                                const SizedBox(width: 10),
+                                ElevatedButton(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF9DBD81),
+                                    foregroundColor: Colors.white,
                                   ),
-                                );
-                              },
-                              child: const Text("Table View"),
-                            ),
-                            const SizedBox(width: 10),
-                            // ✅ New History Button
-                            ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF9DBD81),
-                                foregroundColor: Colors.white,
-                              ),
-                              onPressed: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => VetNotesScreen(
-                                        appointments: _appointments,
-                                        onSave: () async {
-                                          await _saveAppointments();
-                                        }),
+                                  onPressed: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => VetNotesScreen(
+                                          appointments: appointments,
+                                          onSave: () async {},
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                  child: const Text("History & Notes"),
+                                ),
+                                const SizedBox(width: 10),
+                                ElevatedButton(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.blueGrey,
+                                    foregroundColor: Colors.white,
                                   ),
-                                );
-                              },
-                              child: const Text("History & Notes"),
+                                  onPressed: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                          builder: (_) =>
+                                              const CreateZoomMeetingScreen()),
+                                    );
+                                  },
+                                  child: const Text("Join Zoom"),
+                                ),
+                              ],
                             ),
-                            const SizedBox(width: 10),
-                            // ✅ Zoom Button
-                            ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: Colors.blueGrey,
-                                foregroundColor: Colors.white,
+                            const SizedBox(height: 20),
+                            Expanded(
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(
+                                    child: filteredAppointments.isEmpty
+                                        ? const Center(
+                                            child: Text(
+                                              "No appointments found.",
+                                              style: TextStyle(
+                                                  fontSize: 16,
+                                                  color: Colors.grey),
+                                            ),
+                                          )
+                                        : ListView(
+                                            children: filteredAppointments
+                                                .map((appt) =>
+                                                    _appointmentCard(appt))
+                                                .toList(),
+                                          ),
+                                  ),
+                                  const SizedBox(width: 20),
+                                  _buildCalendarSection(bookedDates),
+                                ],
                               ),
-                              onPressed: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                      builder: (_) =>
-                                          const CreateZoomMeetingScreen()),
-                                );
-                              },
-                              child: const Text("Join Zoom"),
                             ),
                           ],
-                        ),
-                        const SizedBox(height: 20),
-
-                        // LIST + CALENDAR
-                        Expanded(
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              // LIST VIEW
-                              Expanded(
-                                child: filteredAppointments.isEmpty
-                                    ? const Center(
-                                        child: Text(
-                                          "No appointments found.",
-                                          style: TextStyle(
-                                            fontSize: 16,
-                                            color: Color.fromARGB(
-                                                255, 110, 110, 110),
-                                          ),
-                                        ),
-                                      )
-                                    : ListView(
-                                        children: filteredAppointments
-                                            .map((appt) =>
-                                                _appointmentCard(appt))
-                                            .toList(),
-                                      ),
-                              ),
-                              const SizedBox(width: 20),
-
-                              // CALENDAR
-                              _buildCalendarSection(),
-                            ],
-                          ),
-                        ),
-                      ],
+                        );
+                      },
                     ),
                   ),
                 ),
@@ -263,7 +271,89 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
     );
   }
 
-  /// Sidebar
+  Widget _appointmentCard(Appointment appt) {
+    Color statusColor;
+    switch (appt.status) {
+      case "Confirmed":
+        statusColor = Colors.green;
+        break;
+      case "Declined":
+        statusColor = Colors.red;
+        break;
+      case "Completed":
+        statusColor = Colors.blue;
+        break;
+      default:
+        statusColor = Colors.orange;
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey.shade300),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(appt.petName,
+                    style: const TextStyle(
+                        fontWeight: FontWeight.bold, fontSize: 16)),
+              ),
+              DropdownButton<String>(
+                value: appt.status,
+                underline: const SizedBox(),
+                items: ["Pending", "Confirmed", "Declined", "Completed"]
+                    .map((s) => DropdownMenuItem(value: s, child: Text(s)))
+                    .toList(),
+                onChanged: (newStatus) async {
+                  if (newStatus != null) {
+                    await FirebaseFirestore.instance
+                        .collection('appointments')
+                        .doc(appt.id)
+                        .update({'status': newStatus});
+                  }
+                },
+              ),
+              Container(
+                width: 12,
+                height: 12,
+                margin: const EdgeInsets.only(left: 6),
+                decoration: BoxDecoration(
+                  color: statusColor,
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(appt.purpose),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              const Icon(Icons.access_time, size: 18),
+              const SizedBox(width: 6),
+              Text(appt.time),
+              const SizedBox(width: 20),
+              const Icon(Icons.person, size: 18),
+              const SizedBox(width: 6),
+              Text(appt.owner),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (appt.vetNotes.isNotEmpty)
+            Text("Notes: ${appt.vetNotes}",
+                style: const TextStyle(
+                    fontStyle: FontStyle.italic, fontSize: 14)),
+        ],
+      ),
+    );
+  }
+
   Widget _buildSidebar() {
     return Container(
       width: 240,
@@ -322,22 +412,18 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
           children: [
             Icon(icon, color: Colors.white, size: 22),
             const SizedBox(width: 14),
-            Text(
-              title,
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 16,
-                fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-              ),
-            ),
+            Text(title,
+                style: TextStyle(
+                    color: Colors.white,
+                    fontWeight:
+                        selected ? FontWeight.bold : FontWeight.normal)),
           ],
         ),
       ),
     );
   }
 
-  /// Calendar
-  Widget _buildCalendarSection() {
+  Widget _buildCalendarSection(List<DateTime> bookedDates) {
     return Container(
       constraints: const BoxConstraints(maxWidth: 300),
       padding: const EdgeInsets.all(12),
@@ -349,10 +435,8 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
         children: [
           const Align(
             alignment: Alignment.centerLeft,
-            child: Text(
-              "Booked Dates",
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-            ),
+            child: Text("Booked Dates",
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
           ),
           const SizedBox(height: 10),
           TableCalendar(
@@ -368,7 +452,7 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
             },
             calendarBuilders: CalendarBuilders(
               markerBuilder: (context, date, events) {
-                if (_bookedDates.any((d) => isSameDay(d, date))) {
+                if (bookedDates.any((d) => isSameDay(d, date))) {
                   return Positioned(
                     bottom: 1,
                     child: Container(
@@ -390,239 +474,13 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
             ),
             calendarStyle: CalendarStyle(
               todayDecoration: BoxDecoration(
-                color: Colors.grey.shade400,
-                shape: BoxShape.circle,
-              ),
+                  color: Colors.grey.shade400, shape: BoxShape.circle),
               selectedDecoration: const BoxDecoration(
-                color: Color(0xFF9DBD81),
-                shape: BoxShape.circle,
-              ),
+                  color: Color(0xFF9DBD81), shape: BoxShape.circle),
             ),
           ),
         ],
       ),
-    );
-  }
-
-  /// Appointment Card
-  Widget _appointmentCard(Appointment appt) {
-    Color statusColor;
-    switch (appt.status) {
-      case "Confirmed":
-        statusColor = Colors.green;
-        break;
-      case "Declined":
-        statusColor = Colors.red;
-        break;
-      case "Completed":
-        statusColor = Colors.blue;
-        break;
-      default:
-        statusColor = Colors.orange;
-    }
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey.shade300),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  appt.petName,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.bold, fontSize: 16),
-                ),
-              ),
-              DropdownButton<String>(
-                value: appt.status,
-                underline: const SizedBox(),
-                items: ["Pending", "Confirmed", "Declined", "Completed"]
-                    .map((s) => DropdownMenuItem(value: s, child: Text(s)))
-                    .toList(),
-                onChanged: (val) {
-                  if (val != null) {
-                    setState(() {
-                      appt.status = val;
-                      _saveAppointments();
-                    });
-                  }
-                },
-              ),
-              Container(
-                width: 12,
-                height: 12,
-                margin: const EdgeInsets.only(left: 6),
-                decoration: BoxDecoration(
-                  color: statusColor,
-                  shape: BoxShape.circle,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(appt.purpose),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              const Icon(Icons.access_time, size: 18),
-              const SizedBox(width: 6),
-              Text(appt.time),
-              const SizedBox(width: 20),
-              const Icon(Icons.person, size: 18),
-              const SizedBox(width: 6),
-              Text(appt.owner),
-              const Spacer(),
-              ElevatedButton(
-                onPressed: () {},
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color.fromARGB(255, 169, 225, 150),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8)),
-                ),
-                child: const Text("Notify Owner"),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          if (appt.vetNotes.isNotEmpty)
-            Text(
-              "Notes: ${appt.vetNotes}",
-              style:
-                  const TextStyle(fontStyle: FontStyle.italic, fontSize: 14),
-            ),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              TextButton(
-                onPressed: () => _showBookingDialog(context, appt.date,
-                    existing: appt),
-                child: const Text("Edit"),
-              ),
-              TextButton(
-                onPressed: () {
-                  setState(() {
-                    _appointments.remove(appt);
-                    _bookedDates.removeWhere((d) =>
-                        isSameDay(d, appt.date) &&
-                        !_appointments.any((a) => isSameDay(a.date, d)));
-                    _saveAppointments();
-                  });
-                },
-                child:
-                    const Text("Delete", style: TextStyle(color: Colors.red)),
-              ),
-            ],
-          )
-        ],
-      ),
-    );
-  }
-
-  /// Filter Tabs
-  Widget _tabButton(String label) {
-    final isSelected = _selectedFilter == label;
-    return Padding(
-      padding: const EdgeInsets.only(right: 12.0),
-      child: GestureDetector(
-        onTap: () {
-          setState(() {
-            _selectedFilter = label;
-          });
-        },
-        child: Text(
-          label,
-          style: TextStyle(
-            color: isSelected ? Colors.black : Colors.black87,
-            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// Edit Appointment Dialog
-  void _showBookingDialog(BuildContext context, DateTime date,
-      {Appointment? existing}) {
-    final petController = TextEditingController(text: existing?.petName ?? "");
-    final purposeController =
-        TextEditingController(text: existing?.purpose ?? "");
-    final timeController = TextEditingController(text: existing?.time ?? "");
-    final ownerController = TextEditingController(text: existing?.owner ?? "");
-    final vetNotesController = TextEditingController(text: existing?.vetNotes ?? "");
-    String status = existing?.status ?? "Pending";
-
-    showDialog(
-      context: context,
-      builder: (ctx) {
-        return AlertDialog(
-          title: const Text("Edit Appointment"),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                    controller: petController,
-                    decoration: const InputDecoration(labelText: "Pet Name")),
-                TextField(
-                    controller: purposeController,
-                    decoration: const InputDecoration(labelText: "Purpose")),
-                TextField(
-                    controller: timeController,
-                    decoration: const InputDecoration(labelText: "Time")),
-                TextField(
-                    controller: ownerController,
-                    decoration: const InputDecoration(labelText: "Owner Name")),
-                TextField(
-                    controller: vetNotesController,
-                    decoration:
-                        const InputDecoration(labelText: "Vet Notes")),
-                DropdownButtonFormField<String>(
-                  value: status,
-                  decoration: const InputDecoration(labelText: "Status"),
-                  items: ["Pending", "Confirmed", "Declined", "Completed"]
-                      .map((s) => DropdownMenuItem(value: s, child: Text(s)))
-                      .toList(),
-                  onChanged: (val) {
-                    if (val != null) status = val;
-                  },
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text("Cancel")),
-            ElevatedButton(
-              onPressed: () {
-                setState(() {
-                  if (existing != null) {
-                    existing.petName = petController.text;
-                    existing.purpose = purposeController.text;
-                    existing.time = timeController.text;
-                    existing.owner = ownerController.text;
-                    existing.status = status;
-                    existing.vetNotes = vetNotesController.text;
-                    _saveAppointments();
-                  }
-                });
-                Navigator.pop(ctx);
-              },
-              style: ElevatedButton.styleFrom(
-                  backgroundColor:
-                      const Color.fromARGB(255, 204, 224, 193)),
-              child: const Text("Save"),
-            ),
-          ],
-        );
-      },
     );
   }
 }
