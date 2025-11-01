@@ -69,7 +69,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   int completedCount = 0;
 
   String _name = 'Dr. Sarah Doe';
-  String _location = 'Marawoy, Lipa City, Batangas';
+  String _location = ' ';
   String _email = 'sarah@vetclinic.com';
   String _specialization = 'Pathology';
   File? _profileImage;

@@ -39,9 +39,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
       nameController.text = prefs.getString('name') ?? 'Dr. Sarah Doe';
-      licenseController.text = prefs.getString('license') ?? 'PHVET-2023-014587';
+      licenseController.text = prefs.getString('license') ?? ' ';
       emailController.text = prefs.getString('email') ?? 'sarah@vetclinic.com';
-      locationController.text = prefs.getString('location') ?? 'Marawoy, Lipa City, Batangas';
+      locationController.text = prefs.getString('location') ?? ' ';
       clinicController.text = prefs.getString('clinic') ?? '';
       String? savedSpecialization = prefs.getString('specialization');
       specialization = specializations.contains(savedSpecialization) ? savedSpecialization! : 'Pathology';

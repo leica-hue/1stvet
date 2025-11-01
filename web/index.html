@@ -6,12 +6,16 @@
       rel="stylesheet"
       href="https://fonts.googleapis.com/icon?family=Material+Icons"
     />
-
+    
     <!-- Flutter base href -->
     <base href="$FLUTTER_BASE_HREF" />
 
     <!-- Meta tags -->
     <meta charset="UTF-8" />
+    <title>Furever Healthy</title>
+    <script async defer crossorigin="anonymous" src="https://connect.facebook.net/en_US/sdk.js"></script>
+    <base href="/" />
+    <meta name="description" content="Furever Healthy" />
     <meta content="IE=Edge" http-equiv="X-UA-Compatible" />
     <meta name="description" content="A new Flutter project." />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -32,5 +36,17 @@
   <body>
     <!-- Flutter App Bootstrap -->
     <script src="flutter_bootstrap.js" async></script>
+
+      <script>
+    window.fbAsyncInit = function() {
+      FB.init({
+        appId      : '1574236717087823', // 🔥 your Facebook App ID
+        cookie     : true,
+        xfbml      : true,
+        version    : 'v18.0'
+      });
+    };
+  </script>
+
   </body>
 </html>
