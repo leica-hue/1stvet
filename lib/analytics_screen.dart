@@ -1,7 +1,7 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-
 class AnalyticsScreen extends StatefulWidget {
   const AnalyticsScreen({super.key});
 
@@ -16,6 +16,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   int totalAppointments = 0;
   int totalFeedbacks = 0;
   double averageRating = 0.0;
+  final user = FirebaseAuth.instance.currentUser;
+
 
   @override
   void initState() {
@@ -24,34 +26,46 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     _listenToRatings(); // ✅ Listen to shared ratings doc
   }
 
-  void _fetchAnalyticsData() {
-    // Patients collection
-    _firestore.collection('patients').snapshots().listen((snapshot) {
-      setState(() {
-        totalPatients = snapshot.docs.length;
-      });
-    });
+void _fetchAnalyticsData() {
+  if (user == null) return;
 
-    // Appointments collection
-    _firestore.collection('appointments').snapshots().listen((snapshot) {
-      setState(() {
-        totalAppointments = snapshot.docs.length;
-      });
+  // Patients linked to this vet
+  _firestore
+      .collection('patients')
+      .where('vetId', isEqualTo: user!.uid)
+      .snapshots()
+      .listen((snapshot) {
+    setState(() {
+      totalPatients = snapshot.docs.length;
     });
-  }
+  });
+
+  // Appointments for this vet
+  _firestore
+      .collection('appointments')
+      .where('vetId', isEqualTo: user!.uid)
+      .snapshots()
+      .listen((snapshot) {
+    setState(() {
+      totalAppointments = snapshot.docs.length;
+    });
+  });
+}
 
   // ✅ Real-time listener for the ratings/overall doc
   void _listenToRatings() {
-    _firestore.collection('ratings').doc('overall').snapshots().listen((doc) {
-      if (doc.exists) {
-        final data = doc.data()!;
-        setState(() {
-          averageRating = (data['avg'] ?? 0).toDouble();
-          totalFeedbacks = (data['count'] ?? 0).toInt();
-        });
-      }
-    });
-  }
+  if (user == null) return;
+
+  _firestore.collection('ratings').doc(user!.uid).snapshots().listen((doc) {
+    if (doc.exists) {
+      final data = doc.data()!;
+      setState(() {
+        averageRating = (data['avg'] ?? 0).toDouble();
+        totalFeedbacks = (data['count'] ?? 0).toInt();
+      });
+    }
+  });
+}
 
   @override
   Widget build(BuildContext context) {

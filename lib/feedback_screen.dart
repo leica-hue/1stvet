@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-
+import 'package:firebase_auth/firebase_auth.dart';
 class VetFeedbackScreen extends StatefulWidget {
   const VetFeedbackScreen({super.key});
 
@@ -132,7 +132,13 @@ class _VetFeedbackScreenState extends State<VetFeedbackScreen> {
           // Real-time Firestore feedbacks
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
-              stream: feedbackCollection.snapshots(),
+              stream: (() {
+                final user = FirebaseAuth.instance.currentUser;
+                return feedbackCollection
+                    .where('vetId', isEqualTo: user?.uid) // Filter by current vet's ID
+                    .snapshots();
+              })(),
+
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());

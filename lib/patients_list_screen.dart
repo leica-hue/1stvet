@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
-import 'appointments_screen.dart'; // Assuming this is where AppointmentsPage is defined
+import 'package:firebase_auth/firebase_auth.dart';
 
 class PatientHistoryScreen extends StatefulWidget {
   const PatientHistoryScreen({super.key});
@@ -12,20 +12,33 @@ class PatientHistoryScreen extends StatefulWidget {
 
 class _PatientHistoryScreenState extends State<PatientHistoryScreen> {
   final Color headerColor = const Color(0xFFBDD9A4);
-  final Color primaryGreen = const Color(0xFF728D5A); // Assuming a primary color
+  final Color primaryGreen = const Color(0xFF728D5A);
   final _firestore = FirebaseFirestore.instance;
+  final _auth = FirebaseAuth.instance;
 
   String searchQuery = "";
   bool sortDescending = true;
   final TextEditingController _searchController = TextEditingController();
 
-  // Helper function for consistent date/time formatting
+  // Helper function to format Firebase Timestamp
   String _formatDate(Timestamp? timestamp) {
-    if (timestamp == null) {
-      return "-";
-    }
-    final DateTime date = timestamp.toDate().toLocal();
+    if (timestamp == null) return "-";
+    final DateTime date = timestamp.toDate().toLocal(); 
     return DateFormat('yyyy-MM-dd HH:mm').format(date);
+  }
+
+  // Helper function for status colors
+  Color _getStatusColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'completed':
+        return Colors.green.shade700;
+      case 'pending':
+        return Colors.amber.shade700;
+      case 'cancelled':
+        return Colors.red.shade700;
+      default:
+        return Colors.grey.shade600;
+    }
   }
 
   @override
@@ -37,13 +50,25 @@ class _PatientHistoryScreenState extends State<PatientHistoryScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final currentUser = _auth.currentUser;
+
+    if (currentUser == null) {
+      return Scaffold(
+        body: Center(
+          child: Text(
+            "Please log in to view patient history.",
+            style: theme.textTheme.titleMedium?.copyWith(color: Colors.grey[700]),
+          ),
+        ),
+      );
+    }
 
     return Scaffold(
       backgroundColor: Colors.grey[50],
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 1. Green Heading Bar (Patient History)
+          // Header
           Container(
             color: headerColor,
             width: double.infinity,
@@ -66,14 +91,13 @@ class _PatientHistoryScreenState extends State<PatientHistoryScreen> {
             ),
           ),
 
-          // 2. Search Bar and Sort Row (White Background)
+          // Search & Sort
           Container(
             color: Colors.white,
             width: double.infinity,
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+            padding: const EdgeInsets.all(16),
             child: Row(
               children: [
-                // Search Bar
                 Expanded(
                   child: TextField(
                     controller: _searchController,
@@ -88,11 +112,12 @@ class _PatientHistoryScreenState extends State<PatientHistoryScreen> {
                       ),
                       focusedBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(10),
-                        borderSide:
-                            BorderSide(color: primaryGreen, width: 1.5),
+                        borderSide: BorderSide(color: primaryGreen, width: 1.5),
                       ),
-                      contentPadding:
-                          const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                      contentPadding: const EdgeInsets.symmetric(
+                        vertical: 12,
+                        horizontal: 16,
+                      ),
                     ),
                     onChanged: (value) {
                       setState(() {
@@ -101,32 +126,16 @@ class _PatientHistoryScreenState extends State<PatientHistoryScreen> {
                     },
                   ),
                 ),
-
                 const SizedBox(width: 10),
-
-                // Sort Button (Beside Search Bar)
-                Tooltip(
-                  message: sortDescending ? "Sort Oldest to Newest" : "Sort Newest to Oldest",
-                  child: IconButton(
-                    onPressed: () {
-                      setState(() {
-                        sortDescending = !sortDescending;
-                      });
-                    },
-                    icon: Icon(
-                      sortDescending
-                          ? Icons.arrow_downward
-                          : Icons.arrow_upward,
-                      color: primaryGreen,
-                      size: 24,
-                    ),
-                    style: IconButton.styleFrom(
-                      backgroundColor: Colors.grey[100],
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      padding: const EdgeInsets.all(12),
-                    ),
+                IconButton(
+                  onPressed: () {
+                    setState(() {
+                      sortDescending = !sortDescending;
+                    });
+                  },
+                  icon: Icon(
+                    sortDescending ? Icons.arrow_downward : Icons.arrow_upward,
+                    color: primaryGreen,
                   ),
                 ),
               ],
@@ -135,79 +144,79 @@ class _PatientHistoryScreenState extends State<PatientHistoryScreen> {
 
           const Divider(height: 1, color: Colors.grey),
 
-          // 3. Patient History Table Area
+          // Table Section
           Expanded(
             child: Padding(
               padding: const EdgeInsets.all(16.0),
+              // *** FIRST StreamBuilder: Fetch Pets by Vet ID ***
               child: StreamBuilder<QuerySnapshot>(
                 stream: _firestore
-                    .collection('appointments')
-                    .orderBy('date', descending: sortDescending)
+                    // 🚨 CORRECTION: Changed from 'petInfos' to 'patients'
+                    .collection('patients') 
+                    .where('vetId', isEqualTo: currentUser.uid)
                     .snapshots(),
-                builder: (context, appointmentSnapshot) {
-                  if (!appointmentSnapshot.hasData) {
-                    return Center(
-                        child: CircularProgressIndicator(color: primaryGreen));
+                builder: (context, petSnapshot) {
+                  if (petSnapshot.connectionState == ConnectionState.waiting) {
+                    return Center(child: CircularProgressIndicator(color: primaryGreen));
                   }
 
-                  final appointmentDocs = appointmentSnapshot.data!.docs;
-
-                  if (appointmentDocs.isEmpty) {
+                  if (!petSnapshot.hasData || petSnapshot.data!.docs.isEmpty) {
                     return Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.folder_open,
-                              size: 60, color: Colors.grey[400]),
-                          const SizedBox(height: 16),
-                          Text(
-                            "No patient history found.",
-                            textAlign: TextAlign.center,
-                            style: theme.textTheme.titleMedium
-                                ?.copyWith(color: Colors.grey[600]),
-                          ),
-                        ],
+                      child: Text(
+                        "No registered patients found for this vet.",
+                        style: theme.textTheme.titleMedium?.copyWith(color: Colors.grey[600]),
                       ),
                     );
                   }
 
+                  // Extract pet data and IDs
+                  final petDocs = petSnapshot.data!.docs;
+                  final petMap = <String, Map<String, dynamic>>{};
+                  final petIds = <String>[];
+                  
+                  for (var doc in petDocs) {
+                    petMap[doc.id] = doc.data() as Map<String, dynamic>;
+                    petIds.add(doc.id); // Collect pet IDs
+                  }
+
+                  // *** SECOND StreamBuilder: Fetch Appointments by Pet ID ***
                   return StreamBuilder<QuerySnapshot>(
-                    stream: _firestore.collection('petInfos').snapshots(),
-                    builder: (context, petSnapshot) {
-                      if (!petSnapshot.hasData) {
-                        return Center(
-                            child:
-                                CircularProgressIndicator(color: primaryGreen));
+                    stream: petIds.isNotEmpty
+                        ? _firestore
+                            .collection('appointments')
+                            .where('vetId', isEqualTo: currentUser.uid)
+                            .orderBy('date', descending: sortDescending)
+                            .snapshots()
+                        : const Stream.empty(),
+                    builder: (context, appointmentSnapshot) {
+                      if (appointmentSnapshot.connectionState == ConnectionState.waiting) {
+                        return Center(child: CircularProgressIndicator(color: primaryGreen));
                       }
+                      
+                      final appointmentDocs = appointmentSnapshot.data?.docs ?? [];
 
-                      final petMap = <String, Map<String, dynamic>>{};
-                      for (var doc in petSnapshot.data!.docs) {
-                        final data = doc.data() as Map<String, dynamic>;
-                        petMap[doc.id] = data;
-                      }
-
+                      // Combine pet and appointment data and apply search filter
                       final combinedDocs = appointmentDocs.map((appDoc) {
                         final appData = appDoc.data() as Map<String, dynamic>;
-                        final petId = appData['petId'] ?? '';
-                        final petData = petMap[petId] ?? {};
+                        final vetId = appData['vetId'] as String? ?? '';
+                        final petData = petMap[vetId] ?? {}; // Get pet data from the outer stream
 
                         return {
-                          'appointmentDoc': appDoc,
-                          'Patient Name':
-                              petData['name'] ?? appData['petName'] ?? '-',
-                          'Species': petData['species'] ?? '-',
-                          'Breed': petData['breed'] ?? '-',
-                          'Sex': petData['sex'] ?? '-', // ADDED
-                          'Owner Info': appData['owner'] ?? '-',
+                          // Pet Information: Using the explicit field names from your Firebase documents
+                          'Patient Name': petData['Patient Name'] ?? petData['name'] ?? '-', 
+                          'Species': petData['Species'] ?? petData['species'] ?? '-',
+                          'Breed': petData['Breed'] ?? petData['breed'] ?? '-',
+                          'Sex': petData['Gender'] ?? petData['sex'] ?? '-', 
+                          'Owner Info': petData['Owner Info'] ?? appData['owner'] ?? '-',
+                          
+                          // Appointment Information (from appointments)
                           'Appointment Date': appData['date'],
-                          'Purpose': appData['purpose'] ?? '-', // ADDED
-                          'Status': appData['status'] ?? 'Pending', // ADDED
+                          'Purpose': appData['purpose'] ?? '-',
+                          'Status': appData['status'] ?? 'Pending',
                           'Vet Notes': appData['vetNotes'] ?? '-',
                         };
                       }).where((combined) {
-                        final name =
-                            (combined['Patient Name'] ?? '').toLowerCase();
-                        // For search by date, we convert the timestamp to a string
+                        final name = (combined['Patient Name'] as String).toLowerCase();
                         final dateString = _formatDate(combined['Appointment Date'] as Timestamp?);
                         return name.contains(searchQuery) ||
                             dateString.toLowerCase().contains(searchQuery);
@@ -215,173 +224,63 @@ class _PatientHistoryScreenState extends State<PatientHistoryScreen> {
 
                       if (combinedDocs.isEmpty) {
                         return Center(
-                          child: Column(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.search_off,
-                                  size: 60, color: Colors.grey[400]),
-                              const SizedBox(height: 16),
-                              Text(
-                                "No matching history found for \"$searchQuery\".",
-                                textAlign: TextAlign.center,
-                                style: theme.textTheme.titleMedium
-                                    ?.copyWith(color: Colors.grey[600]),
-                              ),
-                            ],
+                          child: Text(
+                            "No matching history records found.",
+                            style: theme.textTheme.titleMedium?.copyWith(color: Colors.grey[600]),
                           ),
                         );
                       }
 
-                      // Table Centering
-                      return Align(
-                        alignment: Alignment.topCenter, // Align to top-center
-                        child: SingleChildScrollView(
-                          scrollDirection: Axis.vertical,
-                          child: SingleChildScrollView(
-                            scrollDirection: Axis.horizontal,
-                            child: DataTable(
-                              showCheckboxColumn: false,
-                              columnSpacing: 25, // Adjusted spacing
-                              dataRowMinHeight: 50,
-                              dataRowMaxHeight: 60,
-                              headingRowHeight: 56,
-                              horizontalMargin: 10,
-
-                              // "Card" Effect for the Table
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(12),
-                                border: Border.all(color: Colors.grey.shade200),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.grey.withOpacity(0.1),
-                                    spreadRadius: 1,
-                                    blurRadius: 5,
-                                    offset: const Offset(0, 2),
-                                  ),
-                                ],
-                              ),
-
-                              // Header Styling
-                              headingRowColor: MaterialStateProperty.resolveWith(
-                                  (states) => headerColor.withOpacity(0.5)),
-                              columns: [
-                                DataColumn(
-                                    label: Text("Patient Name",
-                                        style: theme.textTheme.titleSmall
-                                            ?.copyWith(
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.black87))),
-                                DataColumn(
-                                    label: Text("Species",
-                                        style: theme.textTheme.titleSmall
-                                            ?.copyWith(
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.black87))),
-                                DataColumn(
-                                    label: Text("Breed",
-                                        style: theme.textTheme.titleSmall
-                                            ?.copyWith(
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.black87))),
-                                DataColumn(
-                                    label: Text("Sex", // ADDED COLUMN
-                                        style: theme.textTheme.titleSmall
-                                            ?.copyWith(
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.black87))),
-                                DataColumn(
-                                    label: Text("Owner",
-                                        style: theme.textTheme.titleSmall
-                                            ?.copyWith(
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.black87))),
-                                DataColumn(
-                                    label: Text("Date & Time",
-                                        style: theme.textTheme.titleSmall
-                                            ?.copyWith(
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.black87))),
-                                DataColumn(
-                                    label: Text("Purpose", // ADDED COLUMN
-                                        style: theme.textTheme.titleSmall
-                                            ?.copyWith(
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.black87))),
-                                DataColumn(
-                                    label: Text("Status", // ADDED COLUMN
-                                        style: theme.textTheme.titleSmall
-                                            ?.copyWith(
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.black87))),
-                                DataColumn(
-                                    label: Text("Vet Notes",
-                                        style: theme.textTheme.titleSmall
-                                            ?.copyWith(
-                                                fontWeight: FontWeight.bold,
-                                                color: Colors.black87))),
-                              ],
-                              rows: combinedDocs.asMap().entries.map((entry) {
-                                int index = entry.key;
-                                var data = entry.value;
-                                final formattedDate =
-                                    _formatDate(data['Appointment Date'] as Timestamp?);
-
-                                return DataRow(
-                                  // Zebra Stripping for readability
-                                  color: MaterialStateProperty.resolveWith<Color?>(
-                                    (Set<MaterialState> states) {
-                                      if (states.contains(MaterialState.hovered)) {
-                                        return primaryGreen.withOpacity(0.05);
-                                      }
-                                      return index % 2 == 0
-                                          ? Colors.white
-                                          : Colors.grey[100];
-                                    },
-                                  ),
-                                  cells: [
-                                    DataCell(Text(data['Patient Name'] ?? '-',
-                                        style: theme.textTheme.bodyMedium?.copyWith(
-                                            fontWeight: FontWeight.w600,
-                                            color: primaryGreen))),
-                                    DataCell(Text(data['Species'] ?? '-',
-                                        style: theme.textTheme.bodyMedium)),
-                                    DataCell(Text(data['Breed'] ?? '-',
-                                        style: theme.textTheme.bodyMedium)),
-                                    DataCell(Text(data['Sex'] ?? '-', // ADDED CELL
-                                        style: theme.textTheme.bodyMedium)),
-                                    DataCell(Text(data['Owner Info'] ?? '-',
-                                        style: theme.textTheme.bodyMedium)),
-                                    DataCell(Text(formattedDate,
-                                        style: theme.textTheme.bodyMedium?.copyWith(
-                                            fontStyle: FontStyle.italic))),
-                                    DataCell(Text(data['Purpose'] ?? '-', // ADDED CELL
-                                        style: theme.textTheme.bodyMedium)),
-                                    DataCell(Text(data['Status'] ?? '-', // ADDED CELL
-                                        style: theme.textTheme.bodyMedium)),
-                                    DataCell(
-                                      Text(
-                                        data['Vet Notes'] ?? '-',
-                                        style: theme.textTheme.bodyMedium,
-                                        overflow: TextOverflow.ellipsis,
-                                        maxLines: 2, // Allow vet notes to wrap slightly
-                                      ),
-                                    ),
-                                  ],
-                                  onSelectChanged: (_) {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (context) => AppointmentsPage(
-                                          appointmentDoc: data['appointmentDoc'],
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                );
-                              }).toList(),
-                            ),
+                      // Display DataTable
+                      return SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: DataTable(
+                          columnSpacing: 20,
+                          headingRowColor: MaterialStateProperty.resolveWith(
+                            (states) => headerColor.withOpacity(0.5),
                           ),
+                          columns: const [
+                            DataColumn(label: Text("Patient Name")),
+                            DataColumn(label: Text("Species")),
+                            DataColumn(label: Text("Breed")),
+                            DataColumn(label: Text("Sex")),
+                            DataColumn(label: Text("Owner")),
+                            DataColumn(label: Text("Date & Time")),
+                            DataColumn(label: Text("Purpose")),
+                            DataColumn(label: Text("Status")),
+                            DataColumn(label: Text("Vet Notes")),
+                          ],
+                          rows: combinedDocs.map((data) {
+                            final formattedDate = _formatDate(data['Appointment Date'] as Timestamp?);
+                            final status = data['Status'] as String;
+
+                            return DataRow(cells: [
+                              DataCell(Text(data['Patient Name'] as String)),
+                              DataCell(Text(data['Species'] as String)),
+                              DataCell(Text(data['Breed'] as String)),
+                              DataCell(Text(data['Sex'] as String)),
+                              DataCell(Text(data['Owner Info'] as String)),
+                              DataCell(Text(formattedDate)),
+                              DataCell(Text(data['Purpose'] as String)),
+                              DataCell(
+                                Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: _getStatusColor(status).withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    status,
+                                    style: TextStyle(
+                                      color: _getStatusColor(status),
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              DataCell(Text(data['Vet Notes'] as String)),
+                            ]);
+                          }).toList(),
                         ),
                       );
                     },

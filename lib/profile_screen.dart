@@ -1,13 +1,17 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'payment_option_screen.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:path_provider/path_provider.dart';
+
+import 'payment_option_screen.dart';
 import 'dashboard_screen.dart';
 import 'appointments_screen.dart';
 import 'patients_list_screen.dart';
 import 'analytics_screen.dart';
 import 'feedback_screen.dart';
+
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
@@ -24,6 +28,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   String specialization = 'Pathology';
   List<String> specializations = ['Pathology', 'Behaviour', 'Dermatology', 'General'];
+
   File? profileImage;
   File? idImage;
   bool isVerified = false;
@@ -34,32 +39,37 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _loadProfile();
   }
 
-  // ✅ Load profile (runs once)
+  // ✅ Load profile data
   Future<void> _loadProfile() async {
     final prefs = await SharedPreferences.getInstance();
     setState(() {
       nameController.text = prefs.getString('name') ?? 'Dr. Sarah Doe';
-      licenseController.text = prefs.getString('license') ?? ' ';
+      licenseController.text = prefs.getString('license') ?? '';
       emailController.text = prefs.getString('email') ?? 'sarah@vetclinic.com';
-      locationController.text = prefs.getString('location') ?? ' ';
+      locationController.text = prefs.getString('location') ?? '';
       clinicController.text = prefs.getString('clinic') ?? '';
-      String? savedSpecialization = prefs.getString('specialization');
-      specialization = specializations.contains(savedSpecialization) ? savedSpecialization! : 'Pathology';
+      specialization = prefs.getString('specialization') ?? 'Pathology';
       isVerified = prefs.getBool('isVerified') ?? false;
 
-      String? imagePath = prefs.getString('profileImage');
-      if (imagePath != null && File(imagePath).existsSync()) {
-        profileImage = File(imagePath);
+      final profilePath = prefs.getString('profileImage');
+      if (!kIsWeb && profilePath != null) {
+        try {
+          final file = File(profilePath);
+          if (file.existsSync()) profileImage = file;
+        } catch (_) {}
       }
 
-      String? idPath = prefs.getString('idImage');
-      if (idPath != null && File(idPath).existsSync()) {
-        idImage = File(idPath);
+      final idPath = prefs.getString('idImage');
+      if (!kIsWeb && idPath != null) {
+        try {
+          final file = File(idPath);
+          if (file.existsSync()) idImage = file;
+        } catch (_) {}
       }
     });
   }
 
-  // ✅ Manual save only when pressing "Save Changes"
+  // ✅ Save profile info
   Future<void> _saveProfile() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('name', nameController.text);
@@ -69,10 +79,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     await prefs.setString('clinic', clinicController.text);
     await prefs.setString('specialization', specialization);
     await prefs.setBool('isVerified', isVerified);
-    if (profileImage != null) {
+    if (profileImage != null && !kIsWeb) {
       await prefs.setString('profileImage', profileImage!.path);
     }
-    if (idImage != null) {
+    if (idImage != null && !kIsWeb) {
       await prefs.setString('idImage', idImage!.path);
     }
 
@@ -87,48 +97,76 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  // ✅ Pick new profile picture (not auto-saved)
+  // ✅ Pick and persist profile picture (works on web + mobile)
   Future<void> _pickImage() async {
-    final pickedFile = await ImagePicker().pickImage(source: ImageSource.gallery);
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(source: ImageSource.gallery);
+
     if (pickedFile != null) {
-      setState(() {
-        profileImage = File(pickedFile.path);
-      });
-    }
-  }
+      try {
+        final prefs = await SharedPreferences.getInstance();
 
-  // ✅ Pick ID image for verification
-  Future<void> _uploadId() async {
-    final pickedFile = await ImagePicker().pickImage(source: ImageSource.gallery);
-    if (pickedFile != null) {
-      setState(() {
-        idImage = File(pickedFile.path);
-      });
+        if (kIsWeb) {
+          // Web: just save the temporary path reference
+          await prefs.setString('profileImage', pickedFile.path);
+          setState(() {});
+        } else {
+          // Mobile/Desktop: move to permanent directory
+          final directory = await getApplicationDocumentsDirectory();
+          final newPath = '${directory.path}/${DateTime.now().millisecondsSinceEpoch}.jpg';
+          final newImage = await File(pickedFile.path).copy(newPath);
 
-      // Simulate admin verification delay
-      await Future.delayed(const Duration(seconds: 2));
-
-      setState(() {
-        isVerified = true;
-      });
-
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setBool('isVerified', true);
-      await prefs.setString('idImage', pickedFile.path);
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("✅ ID uploaded successfully! Awaiting verification..."),
-            backgroundColor: Color(0xFF728D5A),
-            duration: Duration(seconds: 2),
-          ),
-        );
+          await prefs.setString('profileImage', newImage.path);
+          setState(() {
+            profileImage = newImage;
+          });
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("⚠️ Failed to save image: $e")),
+          );
+        }
       }
     }
   }
 
-  // ✅ Navigation (no auto-save)
+  // ✅ Upload ID (verification)
+  Future<void> _uploadId() async {
+    final pickedFile = await ImagePicker().pickImage(source: ImageSource.gallery);
+    if (pickedFile != null) {
+      try {
+        if (kIsWeb) {
+          setState(() => isVerified = true);
+        } else {
+          idImage = File(pickedFile.path);
+          final prefs = await SharedPreferences.getInstance();
+          await prefs.setBool('isVerified', true);
+          await prefs.setString('idImage', pickedFile.path);
+        }
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text("✅ ID uploaded successfully! Awaiting verification..."),
+              backgroundColor: Color(0xFF728D5A),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+
+        setState(() => isVerified = true);
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text("⚠️ Failed to upload ID: $e")),
+          );
+        }
+      }
+    }
+  }
+
+  // ✅ Navigation helper
   void _navigateTo(Widget screen) {
     Navigator.pushReplacement(
       context,
@@ -177,14 +215,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   onTap: () => _navigateTo(const PatientHistoryScreen()),
                 ),
                 const SizedBox(height: 12),
-                _sidebarItem(icon: Icons.feedback, title: "Feedback",
+                _sidebarItem(
+                  icon: Icons.feedback,
+                  title: "Feedback",
                   onTap: () => _navigateTo(const VetFeedbackScreen()),
                 ),
               ],
             ),
           ),
 
-          // Main Content
+          // Main content
           Expanded(
             child: Column(
               children: [
@@ -233,7 +273,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                 ),
 
-                // Profile Body
+                // Profile body
                 Expanded(
                   child: Container(
                     color: const Color(0xFFF8F9F5),
@@ -257,13 +297,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           child: Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              // Avatar
+                              // Profile image
                               Column(
                                 children: [
                                   CircleAvatar(
                                     radius: 60,
                                     backgroundColor: const Color(0xFFBBD29C),
-                                    backgroundImage: profileImage != null ? FileImage(profileImage!) : null,
+                                    backgroundImage: !kIsWeb && profileImage != null
+                                        ? FileImage(profileImage!)
+                                        : null,
                                     child: profileImage == null
                                         ? const Icon(Icons.person, size: 60, color: Colors.white)
                                         : null,
@@ -284,7 +326,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               ),
                               const SizedBox(width: 50),
 
-                              // Editable Fields
+                              // Editable fields
                               Expanded(
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -358,8 +400,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                                 style: ElevatedButton.styleFrom(
                                                   backgroundColor: const Color(0xFFEAF086),
                                                   foregroundColor: Colors.black,
-                                                  padding: const EdgeInsets.symmetric(
-                                                      vertical: 12, horizontal: 16),
+                                                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
                                                 ),
                                               ),
                                               const SizedBox(height: 10),

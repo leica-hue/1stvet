@@ -129,44 +129,85 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   // Load Firestore ratings
-  Future<void> _loadRatings() async {
-    try {
-      final doc = await _firestore.collection('ratings').doc('overall').get();
-      if (doc.exists) {
-        final data = doc.data()!;
-        if (!mounted) return;
-        setState(() {
-          _averageRating = (data['avg'] ?? 0).toDouble();
-          _ratingCount = (data['count'] ?? 0).toInt();
-        });
-      }
-    } catch (e) {
-      debugPrint('Error loading ratings: $e');
-    }
-  }
+Future<void> _loadRatings() async {
+  try {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
 
-  // Load appointments
-  Future<void> _loadAppointments() async {
-    try {
-      setState(() => _isLoading = true);
-      final snapshot = await _firestore.collection('appointments').get();
-      final loaded = snapshot.docs.map((doc) => Appointment.fromJson(doc.data())).toList();
+    // Read the vet’s own rating document
+    final doc = await _firestore.collection('ratings').doc(user.uid).get();
 
+    if (doc.exists) {
+      final data = doc.data()!;
       if (!mounted) return;
       setState(() {
-        _appointments = loaded;
+        _averageRating = (data['avg'] ?? 0).toDouble();
+        _ratingCount = (data['count'] ?? 0).toInt();
+      });
+    } else {
+      // No ratings yet
+      if (!mounted) return;
+      setState(() {
+        _averageRating = 0;
+        _ratingCount = 0;
+      });
+    }
+  } catch (e) {
+    debugPrint('Error loading ratings: $e');
+  }
+}
+
+
+  // Load appointments
+Future<void> _loadAppointments() async {
+  try {
+    setState(() => _isLoading = true);
+
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      debugPrint('No logged-in vet found.');
+      setState(() => _isLoading = false);
+      return;
+    }
+
+    // ✅ Query only this vet’s appointments
+    final snapshot = await _firestore
+        .collection('appointments')
+        .where('vetId', isEqualTo: user.uid)
+        .get();
+
+    // ✅ Safely handle no results
+    final List<Appointment> loadedAppointments = snapshot.docs.isNotEmpty
+        ? snapshot.docs.map((doc) => Appointment.fromJson(doc.data())).toList()
+        : [];
+
+    if (!mounted) return;
+
+    setState(() {
+      _appointments = loadedAppointments;
+
+      // ✅ Reset all counts to 0 before recounting
+      confirmedCount = 0;
+      pendingCount = 0;
+      declinedCount = 0;
+      completedCount = 0;
+
+      if (_appointments.isNotEmpty) {
         confirmedCount = _appointments.where((a) => a.status == 'Confirmed').length;
         pendingCount = _appointments.where((a) => a.status == 'Pending').length;
         declinedCount = _appointments.where((a) => a.status == 'Declined').length;
         completedCount = _appointments.where((a) => a.status == 'Completed').length;
-        _isLoading = false;
-      });
-    } catch (e) {
-      debugPrint('Error loading appointments: $e');
-      if (!mounted) return;
-      setState(() => _isLoading = false);
-    }
+      }
+
+      _isLoading = false;
+    });
+  } catch (e) {
+    debugPrint('Error loading appointments: $e');
+    if (!mounted) return;
+    setState(() => _isLoading = false);
   }
+}
+
 
   Future<void> _handleSidebarTap(String label) async {
     switch (label) {
@@ -402,6 +443,9 @@ Widget _buildProfileHeader() {
             ),
             const SizedBox(width: 24),
             Expanded(flex: 2, child: _buildRatingAndSummaryBox()),
+            if (_ratingCount == 0)
+              const Text('No ratings yet', style: TextStyle(color: Colors.grey)),
+
           ],
         )
       ],

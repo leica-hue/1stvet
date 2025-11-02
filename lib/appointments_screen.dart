@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -41,6 +42,7 @@ class Appointment {
   String owner;
   String status;
   String vetNotes;
+  String vetId;
 
   Appointment({
     required this.id,
@@ -51,29 +53,40 @@ class Appointment {
     required this.owner,
     this.status = "Pending",
     this.vetNotes = "",
+    required this.vetId,
   });
 
   Map<String, dynamic> toJson() => {
-        'date': date,
-        'petName': petName,
-        'purpose': purpose,
-        'time': time,
-        'owner': owner,
-        'status': status,
-        'vetNotes': vetNotes,
-      };
+    'date': date,
+    'petName': petName,
+    'purpose': purpose,
+    'time': time,
+    'owner': owner,
+    'status': status,
+    'vetNotes': vetNotes,
+    'vetId': vetId,
+  };
 
+  /**
+   * Corrected fromDoc method to safely handle potential null 'date' fields.
+   */
   static Appointment fromDoc(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
+    
+    // Safely cast to Timestamp? and use null-coalescing for a fallback date.
+    final Timestamp? dateTimestamp = data['date'] as Timestamp?;
+    final DateTime appointmentDate = dateTimestamp?.toDate() ?? DateTime(2000); 
+
     return Appointment(
       id: doc.id,
-      date: (data['date'] as Timestamp).toDate(),
+      date: appointmentDate,
       petName: data['petName'] ?? '',
       purpose: data['purpose'] ?? '',
       time: data['time'] ?? '',
       owner: data['owner'] ?? '',
       status: data['status'] ?? 'Pending',
       vetNotes: data['vetNotes'] ?? '',
+      vetId: data['vetId'] ?? '',
     );
   }
 }
@@ -89,6 +102,22 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
   String _selectedFilter = "All";
+  //bool _showOnlyMine = false; // toggle for filtering dynamically
+
+  final user = FirebaseAuth.instance.currentUser;
+
+  Stream<QuerySnapshot> _getAppointmentStream() {
+    if ( user != null) {
+      return FirebaseFirestore.instance
+          .collection('appointments')
+          .where('vetId', isEqualTo: user!.uid)
+          .snapshots();
+    } else {
+      return FirebaseFirestore.instance.collection('appointments')
+      .where('vetId', isEqualTo: 'none')
+      .snapshots();
+    }
+  }
 
   Widget _tabButton(String label) {
     final isSelected = _selectedFilter == label;
@@ -138,10 +167,7 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                   child: Padding(
                     padding: const EdgeInsets.all(24.0),
                     child: StreamBuilder<QuerySnapshot>(
-                      stream: FirebaseFirestore.instance
-                          .collection('appointments')
-                          .orderBy('date', descending: false)
-                          .snapshots(),
+                      stream: _getAppointmentStream(),
                       builder: (context, snapshot) {
                         if (snapshot.connectionState ==
                             ConnectionState.waiting) {
@@ -169,64 +195,71 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            // ✅ Toggle for All vs Mine
                             Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                _tabButton("All"),
-                                _tabButton("Pending"),
-                                _tabButton("Confirmed"),
-                                _tabButton("Declined"),
-                                _tabButton("Completed"),
-                                const Spacer(),
-                                ElevatedButton(
-                                  style: ElevatedButton.styleFrom(
-                                      backgroundColor:
-                                          const Color(0xFF728D5A),
-                                      foregroundColor: Colors.white),
-                                  onPressed: () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (_) => AppointmentsTableView(
-                                            appointments: appointments),
+                                Row(
+                                  children: [
+                                    _tabButton("All"),
+                                    _tabButton("Pending"),
+                                    _tabButton("Confirmed"),
+                                    _tabButton("Declined"),
+                                    _tabButton("Completed"),
+                                    const SizedBox(width: 10),
+                                    ElevatedButton(
+                                      style: ElevatedButton.styleFrom(
+                                          backgroundColor:
+                                              const Color(0xFF728D5A),
+                                          foregroundColor: Colors.white),
+                                      onPressed: () {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) => AppointmentsTableView(
+                                                appointments: appointments),
+                                          ),
+                                        );
+                                      },
+                                      child: const Text("Table View"),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    ElevatedButton(
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor:
+                                            const Color(0xFF9DBD81),
+                                        foregroundColor: Colors.white,
                                       ),
-                                    );
-                                  },
-                                  child: const Text("Table View"),
-                                ),
-                                const SizedBox(width: 10),
-                                ElevatedButton(
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFF9DBD81),
-                                    foregroundColor: Colors.white,
-                                  ),
-                                  onPressed: () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (_) => VetNotesScreen(
-                                          appointments: appointments,
-                                          onSave: () async {},
-                                        ),
+                                      onPressed: () {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                            builder: (_) => VetNotesScreen(
+                                              appointments: appointments,
+                                              onSave: () async {},
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                      child: const Text("History & Notes"),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    ElevatedButton(
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: Colors.blueGrey,
+                                        foregroundColor: Colors.white,
                                       ),
-                                    );
-                                  },
-                                  child: const Text("History & Notes"),
-                                ),
-                                const SizedBox(width: 10),
-                                ElevatedButton(
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.blueGrey,
-                                    foregroundColor: Colors.white,
-                                  ),
-                                  onPressed: () {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                          builder: (_) =>
-                                              const CreateZoomMeetingScreen()),
-                                    );
-                                  },
-                                  child: const Text("Join Zoom"),
+                                      onPressed: () {
+                                        Navigator.push(
+                                          context,
+                                          MaterialPageRoute(
+                                              builder: (_) =>
+                                                  const CreateZoomMeetingScreen()),
+                                        );
+                                      },
+                                      child: const Text("Join Zoom"),
+                                    ),
+                                  ],
                                 ),
                               ],
                             ),
@@ -361,6 +394,7 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
       child: Column(
         children: [
           const SizedBox(height: 30),
+          // 
           Image.asset('assets/furever2.png', width: 140),
           const SizedBox(height: 40),
           _sidebarItem(Icons.person_outline, "Profile"),
