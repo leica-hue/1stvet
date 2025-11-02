@@ -1,13 +1,14 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 import 'analytics_screen.dart';
 import 'feedback_screen.dart';
 import 'appointments_screen.dart';
 import 'profile_screen.dart';
 import 'login_screen.dart';
-import 'settings_screen.dart';
+import 'settings_screen.dart' hide LoginScreen;
 import 'patients_list_screen.dart';
 import 'user_prefs.dart';
 
@@ -60,6 +61,7 @@ class DashboardScreen extends StatefulWidget {
 
 class _DashboardScreenState extends State<DashboardScreen> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final user = FirebaseAuth.instance.currentUser;
 
   double _averageRating = 0.0;
   int _ratingCount = 0;
@@ -77,6 +79,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String _location = '';
   String _email = '';
   String _specialization = '';
+  String _vetStatus = 'Loading...';
   File? _profileImage;
   bool _isVerified = false;
 
@@ -84,11 +87,33 @@ class _DashboardScreenState extends State<DashboardScreen> {
   void initState() {
     super.initState();
     _loadProfile();
+    _loadVetStatus();
     _loadRatings();
     _loadAppointments();
   }
 
-  // 🔹 Load user profile from shared prefs
+  // Load vet status from Firestore
+  Future<void> _loadVetStatus() async {
+    if (user == null) return;
+
+    final doc = await _firestore.collection('vets').doc(user!.uid).get();
+    if (doc.exists) {
+      final data = doc.data();
+      final inactive = data?['inactive'] ?? false;
+      final status = data?['status'] ?? 'Available';
+      if (!mounted) return;
+      setState(() {
+        _vetStatus = inactive ? 'Unavailable (Deactivated)' : status;
+      });
+    } else {
+      if (!mounted) return;
+      setState(() {
+        _vetStatus = 'Status not found';
+      });
+    }
+  }
+
+  // Load user profile from shared prefs
   Future<void> _loadProfile() async {
     final profile = await UserPrefs.loadProfile();
     final verification = await UserPrefs.loadVerification();
@@ -103,12 +128,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
     });
   }
 
-  // 🔹 Load Firestore ratings
+  // Load Firestore ratings
   Future<void> _loadRatings() async {
     try {
       final doc = await _firestore.collection('ratings').doc('overall').get();
       if (doc.exists) {
         final data = doc.data()!;
+        if (!mounted) return;
         setState(() {
           _averageRating = (data['avg'] ?? 0).toDouble();
           _ratingCount = (data['count'] ?? 0).toInt();
@@ -119,17 +145,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  // 🔹 Load appointments
+  // Load appointments
   Future<void> _loadAppointments() async {
     try {
       setState(() => _isLoading = true);
       final snapshot = await _firestore.collection('appointments').get();
+      final loaded = snapshot.docs.map((doc) => Appointment.fromJson(doc.data())).toList();
 
-      final loaded = snapshot.docs.map((doc) {
-        final data = doc.data();
-        return Appointment.fromJson(data);
-      }).toList();
-
+      if (!mounted) return;
       setState(() {
         _appointments = loaded;
         confirmedCount = _appointments.where((a) => a.status == 'Confirmed').length;
@@ -140,44 +163,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
       });
     } catch (e) {
       debugPrint('Error loading appointments: $e');
+      if (!mounted) return;
       setState(() => _isLoading = false);
     }
   }
 
-  // 🔹 Submit rating and update shared document
-  Future<void> _submitRating(int newRating) async {
-    final docRef = _firestore.collection('ratings').doc('overall');
-    final doc = await _firestore.collection('ratings').doc('overall').get();
-
-
-    double newAvg;
-    int newCount;
-
-    if (doc.exists) {
-      final data = doc.data()!;
-      final oldAvg = (data['avg'] ?? 0).toDouble();
-      final oldCount = (data['count'] ?? 0).toInt();
-      newAvg = ((oldAvg * oldCount) + newRating) / (oldCount + 1);
-      newCount = oldCount + 1;
-    } else {
-      newAvg = newRating.toDouble();
-      newCount = 1;
-    }
-
-    await docRef.set({
-      'avg': newAvg,
-      'count': newCount,
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
-
-    setState(() {
-      _averageRating = newAvg;
-      _ratingCount = newCount;
-      _selectedRating = newRating;
-    });
-  }
-
-  // 🔹 Handle sidebar navigation
   Future<void> _handleSidebarTap(String label) async {
     switch (label) {
       case 'Profile':
@@ -185,7 +175,8 @@ class _DashboardScreenState extends State<DashboardScreen> {
         await _loadProfile();
         break;
       case 'Appointments':
-        await Navigator.push(context, MaterialPageRoute(builder: (_) => AppointmentsPage()));
+        await Navigator.push(context, MaterialPageRoute(builder: (_) => AppointmentsPage(appointmentDoc: null)));
+        await _loadAppointments();
         break;
       case 'Analytics':
         await Navigator.push(context, MaterialPageRoute(builder: (_) => const AnalyticsScreen()));
@@ -198,7 +189,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         await Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
         break;
       case 'Patients':
-        await Navigator.push(context, MaterialPageRoute(builder: (_) => const PatientsListScreen()));
+        await Navigator.push(context, MaterialPageRoute(builder: (_) => const PatientHistoryScreen()));
         break;
       case 'Log out':
         await UserPrefs.clearLoggedIn();
@@ -293,62 +284,88 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  // 🧩 UI Helper Widgets
-
-  Widget _buildProfileHeader() {
-    return Row(
-      children: [
-        CircleAvatar(
-          radius: 32,
-          backgroundColor: Colors.grey.shade300,
-          backgroundImage: _profileImage != null ? FileImage(_profileImage!) : null,
-          child: _profileImage == null
-              ? const Icon(Icons.person, size: 40, color: Colors.white)
-              : null,
-        ),
-        const SizedBox(width: 20),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(_name, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-            Text(_location),
-            Text(_specialization, style: const TextStyle(color: Colors.black87)),
-            const SizedBox(height: 6),
-            if (_isVerified)
-              const Row(
-                children: [
-                  Icon(Icons.verified, size: 16, color: Colors.green),
-                  SizedBox(width: 4),
-                  Text('License Verified'),
-                ],
-              )
-            else
-              ElevatedButton(
-                onPressed: _verifyLicense,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFEAF086),
-                  foregroundColor: Colors.black,
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                ),
-                child: const Text('Verify License'),
-              ),
-          ],
-        ),
-        const Spacer(),
-        ElevatedButton(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: const Color(0xFFEAF086),
-            foregroundColor: Colors.black,
+Widget _buildProfileHeader() {
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      // Deactivation Banner
+      if (_vetStatus.contains('Deactivated'))
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: Colors.red.shade300,
+            borderRadius: BorderRadius.circular(8),
           ),
-          onPressed: () async {
-            await Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen()));
-            await _loadProfile();
-          },
-          child: const Text('Edit Profile'),
+          child: const Text(
+            'Your account is deactivated. You are marked as unavailable.',
+            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+          ),
         ),
-      ],
-    );
-  }
+
+      Row(
+        children: [
+          CircleAvatar(
+            radius: 32,
+            backgroundColor: Colors.grey.shade300,
+            backgroundImage: _profileImage != null ? FileImage(_profileImage!) : null,
+            child: _profileImage == null
+                ? const Icon(Icons.person, size: 40, color: Colors.white)
+                : null,
+          ),
+          const SizedBox(width: 20),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(_name, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+              Text(_location),
+              Text(_specialization, style: const TextStyle(color: Colors.black87)),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  if (_isVerified)
+                    const Row(
+                      children: [
+                        Icon(Icons.verified, size: 16, color: Colors.green),
+                        SizedBox(width: 4),
+                        Text('License Verified'),
+                      ],
+                    )
+                  else
+                    ElevatedButton(
+                      onPressed: _verifyLicense,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFEAF086),
+                        foregroundColor: Colors.black,
+                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                      ),
+                      child: const Text('Verify License'),
+                    ),
+                  const SizedBox(width: 16),
+                  Text('Status: $_vetStatus',
+                      style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87)),
+                ],
+              ),
+            ],
+          ),
+          const Spacer(),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFEAF086),
+              foregroundColor: Colors.black,
+            ),
+            onPressed: () async {
+              await Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen()));
+              await _loadProfile();
+            },
+            child: const Text('Edit Profile'),
+          ),
+        ],
+      ),
+    ],
+  );
+}
 
   Widget _buildAppointmentsSection(List<Appointment> todayAppointments) {
     return Column(
@@ -361,7 +378,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
             GestureDetector(
               onTap: () async {
-                await Navigator.push(context, MaterialPageRoute(builder: (_) => AppointmentsPage()));
+                await Navigator.push(context, MaterialPageRoute(builder: (_) => AppointmentsPage(appointmentDoc: null)));
                 await _loadAppointments();
               },
               child: const Text('View All', style: TextStyle(color: Colors.black)),
@@ -454,62 +471,61 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-Widget _buildRatingAndSummaryBox() {
-  return Column(
-    children: [
-      Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          border: Border.all(color: Colors.grey.shade300),
-          borderRadius: BorderRadius.circular(12),
+  Widget _buildRatingAndSummaryBox() {
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            border: Border.all(color: Colors.grey.shade300),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            children: [
+              Text(
+                _averageRating.toStringAsFixed(1),
+                style: const TextStyle(fontSize: 42, fontWeight: FontWeight.bold),
+              ),
+              const Icon(Icons.star, color: Colors.green, size: 30),
+              const Text('Overall Rating'),
+              Text(
+                '$_ratingCount Client Feedbacks',
+                style: const TextStyle(color: Colors.grey),
+              ),
+            ],
+          ),
         ),
-        child: Column(
-          children: [
-            Text(
-              _averageRating.toStringAsFixed(1),
-              style: const TextStyle(fontSize: 42, fontWeight: FontWeight.bold),
-            ),
-            const Icon(Icons.star, color: Colors.green, size: 30),
-            const Text('Overall Rating'),
-            Text(
-              '$_ratingCount Client Feedbacks',
-              style: const TextStyle(color: Colors.grey),
-            ),
-          ],
+        const SizedBox(height: 20),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            border: Border.all(color: Colors.grey.shade300),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Appointment Summary',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _statusCount('Pending', pendingCount, color: Colors.orange),
+                  _statusCount('Confirmed', confirmedCount, color: Colors.green),
+                  _statusCount('Declined', declinedCount, color: Colors.red),
+                  _statusCount('Completed', completedCount, color: Colors.blue),
+                ],
+              ),
+            ],
+          ),
         ),
-      ),
-      const SizedBox(height: 20),
-      Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          border: Border.all(color: Colors.grey.shade300),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Appointment Summary',
-              style: TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _statusCount('Pending', pendingCount, color: Colors.orange),
-                _statusCount('Confirmed', confirmedCount, color: Colors.green),
-                _statusCount('Declined', declinedCount, color: Colors.red),
-                _statusCount('Completed', completedCount, color: Colors.blue),
-              ],
-            ),
-          ],
-        ),
-      ),
-    ],
-  );
-}
-
+      ],
+    );
+  }
 
   Widget _statusCount(String label, int count, {required Color color}) {
     return Column(

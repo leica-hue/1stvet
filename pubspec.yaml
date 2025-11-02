@@ -44,6 +44,7 @@ dependencies:
   flutter_zoom_sdk: ^1.1.0+4
   firebase_analytics: ^11.0.0
   firebase_database: ^11.0.3
+  intl: ^0.20.2
 
 
   # The following adds the Cupertino Icons font to your application.

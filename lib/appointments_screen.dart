@@ -27,7 +27,7 @@ class FureverHealthyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return const MaterialApp(
       debugShowCheckedModeBanner: false,
-      home: AppointmentsPage(),
+      home: AppointmentsPage(appointmentDoc: null),
     );
   }
 }
@@ -79,7 +79,7 @@ class Appointment {
 }
 
 class AppointmentsPage extends StatefulWidget {
-  const AppointmentsPage({super.key});
+  const AppointmentsPage({super.key, required appointmentDoc});
 
   @override
   State<AppointmentsPage> createState() => _AppointmentsPageState();
@@ -385,7 +385,7 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
         } else if (title == "Patients") {
           Navigator.pushReplacement(
             context,
-            MaterialPageRoute(builder: (_) => const PatientsListScreen()),
+            MaterialPageRoute(builder: (_) => const PatientHistoryScreen()),
           );
         } else if (title == "Analytics") {
           Navigator.pushReplacement(

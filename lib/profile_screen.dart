@@ -162,7 +162,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 _sidebarItem(
                   icon: Icons.calendar_today,
                   title: "Appointments",
-                  onTap: () => _navigateTo(AppointmentsPage()),
+                  onTap: () => _navigateTo(AppointmentsPage(appointmentDoc: null)),
                 ),
                 const SizedBox(height: 12),
                 _sidebarItem(
@@ -174,7 +174,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 _sidebarItem(
                   icon: Icons.pets,
                   title: "Patients",
-                  onTap: () => _navigateTo(const PatientsListScreen()),
+                  onTap: () => _navigateTo(const PatientHistoryScreen()),
                 ),
                 const SizedBox(height: 12),
                 _sidebarItem(icon: Icons.feedback, title: "Feedback",

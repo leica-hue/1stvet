@@ -1,354 +1,396 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:flutter_application_1/analytics_screen.dart';
-import 'package:flutter_application_1/feedback_screen.dart';
-import 'package:flutter_application_1/profile_screen.dart';
-import 'patients_screen.dart';
-import 'dashboard_screen.dart';
-import 'appointments_screen.dart';
+import 'package:intl/intl.dart';
+import 'appointments_screen.dart'; // Assuming this is where AppointmentsPage is defined
 
-class PatientsListScreen extends StatefulWidget {
-  const PatientsListScreen({super.key});
+class PatientHistoryScreen extends StatefulWidget {
+  const PatientHistoryScreen({super.key});
 
   @override
-  State<PatientsListScreen> createState() => _PatientsListScreenState();
+  State<PatientHistoryScreen> createState() => _PatientHistoryScreenState();
 }
 
-class _PatientsListScreenState extends State<PatientsListScreen> {
-  final Color sidebarColor = const Color(0xFF728D5A);
+class _PatientHistoryScreenState extends State<PatientHistoryScreen> {
   final Color headerColor = const Color(0xFFBDD9A4);
+  final Color primaryGreen = const Color(0xFF728D5A); // Assuming a primary color
   final _firestore = FirebaseFirestore.instance;
 
-  Set<String> selectedDocIds = {};
+  String searchQuery = "";
+  bool sortDescending = true;
+  final TextEditingController _searchController = TextEditingController();
 
-  Future<void> _deleteSelected() async {
-    if (selectedDocIds.isEmpty) return;
-
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text("Delete Selected Patients"),
-        content: const Text(
-            "Are you sure you want to delete the selected patients?"),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text("Cancel")),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text("Delete"),
-          ),
-        ],
-      ),
-    );
-
-    if (confirm == true) {
-      for (final id in selectedDocIds) {
-        await _firestore.collection('patients').doc(id).delete();
-      }
-      setState(() => selectedDocIds.clear());
+  // Helper function for consistent date/time formatting
+  String _formatDate(Timestamp? timestamp) {
+    if (timestamp == null) {
+      return "-";
     }
+    final DateTime date = timestamp.toDate().toLocal();
+    return DateFormat('yyyy-MM-dd HH:mm').format(date);
   }
 
-  void _viewPatientDetails(Map<String, dynamic> patient) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text("Patient: ${patient["Patient Name"] ?? ""}"),
-        content: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _detailRow("Species", patient["Species"]),
-              _detailRow("Breed", patient["Breed"]),
-              _detailRow("Height", patient["Height"]),
-              _detailRow("Weight", patient["Weight"]),
-              _detailRow("Appearance", patient["Appearance"]),
-              _detailRow("Owner Info", patient["Owner Info"]),
-              _detailRow("Last Consultation", patient["Last Consultation"]),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text("Close")),
-        ],
-      ),
-    );
-  }
-
-  Widget _detailRow(String label, String? value) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 6),
-      child: Text(
-        "$label: ${value ?? "-"}",
-        style: const TextStyle(fontSize: 15),
-      ),
-    );
-  }
-
-  void _openPatientForm({Map<String, dynamic>? existingPatient, String? docId}) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) =>
-            PatientsScreen(existingPatient: existingPatient, docId: docId),
-      ),
-    );
-  }
-
-  void _toggleSelectAll(List<DocumentSnapshot> docs) {
-    setState(() {
-      if (selectedDocIds.length == docs.length) {
-        selectedDocIds.clear();
-      } else {
-        selectedDocIds = docs.map((e) => e.id).toSet();
-      }
-    });
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Scaffold(
-      body: Row(
+      backgroundColor: Colors.grey[50],
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 🟩 Sidebar
+          // 1. Green Heading Bar (Patient History)
           Container(
-            width: 220,
-            color: sidebarColor,
-            padding: const EdgeInsets.symmetric(vertical: 30),
-            child: Column(
+            color: headerColor,
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(10, 40, 20, 10),
+            child: Row(
               children: [
-                Image.asset('assets/furever2.png', width: 140),
-                const SizedBox(height: 40),
-                _sidebarItem("Profile", icon: Icons.person, onTap: () {
-                  Navigator.pushReplacement(context,
-                      MaterialPageRoute(builder: (context) => const ProfileScreen()));
-                }),
-                _sidebarItem("Dashboard", icon: Icons.dashboard, onTap: () {
-                  Navigator.pushReplacement(context,
-                      MaterialPageRoute(builder: (context) => const DashboardScreen()));
-                }),
-                _sidebarItem("Appointments", icon: Icons.calendar_today, onTap: () {
-                  Navigator.pushReplacement(context,
-                      MaterialPageRoute(builder: (context) => AppointmentsPage()));
-                }),
-                _sidebarItem("Analytics", icon: Icons.analytics, onTap: () {
-                  Navigator.pushReplacement(context,
-                      MaterialPageRoute(builder: (context) => const AnalyticsScreen()));
-                }),
-                _sidebarItem("Patients", icon: Icons.pets, selected: true),
-                _sidebarItem("Feedback", icon: Icons.feedback, onTap: () {
-                  Navigator.pushReplacement(context,
-                      MaterialPageRoute(builder: (context) => const VetFeedbackScreen()));
-                }),
+                IconButton(
+                  icon: Icon(Icons.arrow_back, color: Colors.grey[800]),
+                  onPressed: () => Navigator.pop(context),
+                  splashRadius: 20,
+                ),
+                Text(
+                  "Patient History",
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey[800],
+                  ),
+                ),
               ],
             ),
           ),
 
-          // 🟦 Main Content
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+          // 2. Search Bar and Sort Row (White Background)
+          Container(
+            color: Colors.white,
+            width: double.infinity,
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+            child: Row(
               children: [
-                // 🟨 Header
-                Container(
-                  color: headerColor,
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(20),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Text("Patients",
-                          style: TextStyle(
-                              fontWeight: FontWeight.bold, fontSize: 24)),
-                      StreamBuilder<QuerySnapshot>(
-                        stream: _firestore.collection('patients').snapshots(),
-                        builder: (context, snapshot) {
-                          final docs = snapshot.data?.docs ?? [];
-                          return Row(
-                            children: [
-                              if (selectedDocIds.isNotEmpty)
-                                ElevatedButton.icon(
-                                  onPressed: _deleteSelected,
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.red,
-                                    padding: const EdgeInsets.symmetric(
-                                        vertical: 12, horizontal: 16),
-                                    shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(10)),
-                                  ),
-                                  icon: const Icon(Icons.delete),
-                                  label: Text(
-                                      "Delete (${selectedDocIds.length})"),
-                                ),
-                              const SizedBox(width: 10),
-                              ElevatedButton.icon(
-                                onPressed: () => _toggleSelectAll(docs),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.orange,
-                                  padding: const EdgeInsets.symmetric(
-                                      vertical: 12, horizontal: 16),
-                                  shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(10)),
-                                ),
-                                icon: const Icon(Icons.select_all),
-                                label: Text(selectedDocIds.length == docs.length
-                                    ? "Deselect All"
-                                    : "Select All"),
-                              ),
-                              const SizedBox(width: 10),
-                              ElevatedButton.icon(
-                                onPressed: () => _openPatientForm(),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.green,
-                                  padding: const EdgeInsets.symmetric(
-                                      vertical: 12, horizontal: 16),
-                                  shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(10)),
-                                ),
-                                icon: const Icon(Icons.add),
-                                label: const Text("Add Patient"),
-                              ),
-                            ],
-                          );
-                        },
+                // Search Bar
+                Expanded(
+                  child: TextField(
+                    controller: _searchController,
+                    decoration: InputDecoration(
+                      hintText: "Search by patient name or date",
+                      prefixIcon: const Icon(Icons.search, color: Colors.grey),
+                      filled: true,
+                      fillColor: Colors.grey[100],
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: BorderSide.none,
                       ),
-                    ],
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide:
+                            BorderSide(color: primaryGreen, width: 1.5),
+                      ),
+                      contentPadding:
+                          const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                    ),
+                    onChanged: (value) {
+                      setState(() {
+                        searchQuery = value.toLowerCase();
+                      });
+                    },
                   ),
                 ),
 
-                // 🟩 Realtime Table
-                Expanded(
-                  child: StreamBuilder<QuerySnapshot>(
-                    stream: _firestore
-                        .collection('patients')
-                        .orderBy('registeredDate', descending: true)
-                        .snapshots(),
-                    builder: (context, snapshot) {
-                      if (snapshot.connectionState == ConnectionState.waiting) {
-                        return const Center(child: CircularProgressIndicator());
+                const SizedBox(width: 10),
+
+                // Sort Button (Beside Search Bar)
+                Tooltip(
+                  message: sortDescending ? "Sort Oldest to Newest" : "Sort Newest to Oldest",
+                  child: IconButton(
+                    onPressed: () {
+                      setState(() {
+                        sortDescending = !sortDescending;
+                      });
+                    },
+                    icon: Icon(
+                      sortDescending
+                          ? Icons.arrow_downward
+                          : Icons.arrow_upward,
+                      color: primaryGreen,
+                      size: 24,
+                    ),
+                    style: IconButton.styleFrom(
+                      backgroundColor: Colors.grey[100],
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      padding: const EdgeInsets.all(12),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          const Divider(height: 1, color: Colors.grey),
+
+          // 3. Patient History Table Area
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: StreamBuilder<QuerySnapshot>(
+                stream: _firestore
+                    .collection('appointments')
+                    .orderBy('date', descending: sortDescending)
+                    .snapshots(),
+                builder: (context, appointmentSnapshot) {
+                  if (!appointmentSnapshot.hasData) {
+                    return Center(
+                        child: CircularProgressIndicator(color: primaryGreen));
+                  }
+
+                  final appointmentDocs = appointmentSnapshot.data!.docs;
+
+                  if (appointmentDocs.isEmpty) {
+                    return Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.folder_open,
+                              size: 60, color: Colors.grey[400]),
+                          const SizedBox(height: 16),
+                          Text(
+                            "No patient history found.",
+                            textAlign: TextAlign.center,
+                            style: theme.textTheme.titleMedium
+                                ?.copyWith(color: Colors.grey[600]),
+                          ),
+                        ],
+                      ),
+                    );
+                  }
+
+                  return StreamBuilder<QuerySnapshot>(
+                    stream: _firestore.collection('petInfos').snapshots(),
+                    builder: (context, petSnapshot) {
+                      if (!petSnapshot.hasData) {
+                        return Center(
+                            child:
+                                CircularProgressIndicator(color: primaryGreen));
                       }
 
-                      final docs = snapshot.data?.docs ?? [];
+                      final petMap = <String, Map<String, dynamic>>{};
+                      for (var doc in petSnapshot.data!.docs) {
+                        final data = doc.data() as Map<String, dynamic>;
+                        petMap[doc.id] = data;
+                      }
 
-                      if (docs.isEmpty) {
-                        return const Center(
-                          child: Text(
-                            "No patients found.\nClick 'Add Patient' to add one.",
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                                fontSize: 16, color: Colors.black54),
+                      final combinedDocs = appointmentDocs.map((appDoc) {
+                        final appData = appDoc.data() as Map<String, dynamic>;
+                        final petId = appData['petId'] ?? '';
+                        final petData = petMap[petId] ?? {};
+
+                        return {
+                          'appointmentDoc': appDoc,
+                          'Patient Name':
+                              petData['name'] ?? appData['petName'] ?? '-',
+                          'Species': petData['species'] ?? '-',
+                          'Breed': petData['breed'] ?? '-',
+                          'Sex': petData['sex'] ?? '-', // ADDED
+                          'Owner Info': appData['owner'] ?? '-',
+                          'Appointment Date': appData['date'],
+                          'Purpose': appData['purpose'] ?? '-', // ADDED
+                          'Status': appData['status'] ?? 'Pending', // ADDED
+                          'Vet Notes': appData['vetNotes'] ?? '-',
+                        };
+                      }).where((combined) {
+                        final name =
+                            (combined['Patient Name'] ?? '').toLowerCase();
+                        // For search by date, we convert the timestamp to a string
+                        final dateString = _formatDate(combined['Appointment Date'] as Timestamp?);
+                        return name.contains(searchQuery) ||
+                            dateString.toLowerCase().contains(searchQuery);
+                      }).toList();
+
+                      if (combinedDocs.isEmpty) {
+                        return Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.search_off,
+                                  size: 60, color: Colors.grey[400]),
+                              const SizedBox(height: 16),
+                              Text(
+                                "No matching history found for \"$searchQuery\".",
+                                textAlign: TextAlign.center,
+                                style: theme.textTheme.titleMedium
+                                    ?.copyWith(color: Colors.grey[600]),
+                              ),
+                            ],
                           ),
                         );
                       }
 
-                      return SingleChildScrollView(
-                        scrollDirection: Axis.vertical,
+                      // Table Centering
+                      return Align(
+                        alignment: Alignment.topCenter, // Align to top-center
                         child: SingleChildScrollView(
-                          scrollDirection: Axis.horizontal,
-                          child: DataTable(
-                            columnSpacing: 30,
-                            headingRowColor: MaterialStateColor.resolveWith(
-                                (states) => Colors.grey.shade200),
-                            columns: const [
-                              DataColumn(label: Text("Select")),
-                              DataColumn(label: Text("Name")),
-                              DataColumn(label: Text("Species")),
-                              DataColumn(label: Text("Breed")),
-                              DataColumn(label: Text("Owner")),
-                              DataColumn(label: Text("Actions")),
-                            ],
-                            rows: docs.map((doc) {
-                              final data =
-                                  doc.data() as Map<String, dynamic>;
-                              final isSelected = selectedDocIds.contains(doc.id);
+                          scrollDirection: Axis.vertical,
+                          child: SingleChildScrollView(
+                            scrollDirection: Axis.horizontal,
+                            child: DataTable(
+                              showCheckboxColumn: false,
+                              columnSpacing: 25, // Adjusted spacing
+                              dataRowMinHeight: 50,
+                              dataRowMaxHeight: 60,
+                              headingRowHeight: 56,
+                              horizontalMargin: 10,
 
-                              return DataRow(
-                                cells: [
-                                  DataCell(
-                                    Checkbox(
-                                      value: isSelected,
-                                      onChanged: (bool? selected) {
-                                        setState(() {
-                                          if (selected == true) {
-                                            selectedDocIds.add(doc.id);
-                                          } else {
-                                            selectedDocIds.remove(doc.id);
-                                          }
-                                        });
-                                      },
-                                    ),
-                                  ),
-                                  DataCell(Text(data["Patient Name"] ?? "")),
-                                  DataCell(Text(data["Species"] ?? "")),
-                                  DataCell(Text(data["Breed"] ?? "")),
-                                  DataCell(Text(data["Owner Info"] ?? "")),
-                                  DataCell(
-                                    Row(
-                                      children: [
-                                        IconButton(
-                                          icon: const Icon(Icons.visibility,
-                                              color: Colors.blue),
-                                          onPressed: () =>
-                                              _viewPatientDetails(data),
-                                        ),
-                                        IconButton(
-                                          icon: const Icon(Icons.edit,
-                                              color: Colors.orange),
-                                          onPressed: () => _openPatientForm(
-                                              existingPatient: data,
-                                              docId: doc.id),
-                                        ),
-                                      ],
-                                    ),
+                              // "Card" Effect for the Table
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: Colors.grey.shade200),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.grey.withOpacity(0.1),
+                                    spreadRadius: 1,
+                                    blurRadius: 5,
+                                    offset: const Offset(0, 2),
                                   ),
                                 ],
-                              );
-                            }).toList(),
+                              ),
+
+                              // Header Styling
+                              headingRowColor: MaterialStateProperty.resolveWith(
+                                  (states) => headerColor.withOpacity(0.5)),
+                              columns: [
+                                DataColumn(
+                                    label: Text("Patient Name",
+                                        style: theme.textTheme.titleSmall
+                                            ?.copyWith(
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.black87))),
+                                DataColumn(
+                                    label: Text("Species",
+                                        style: theme.textTheme.titleSmall
+                                            ?.copyWith(
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.black87))),
+                                DataColumn(
+                                    label: Text("Breed",
+                                        style: theme.textTheme.titleSmall
+                                            ?.copyWith(
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.black87))),
+                                DataColumn(
+                                    label: Text("Sex", // ADDED COLUMN
+                                        style: theme.textTheme.titleSmall
+                                            ?.copyWith(
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.black87))),
+                                DataColumn(
+                                    label: Text("Owner",
+                                        style: theme.textTheme.titleSmall
+                                            ?.copyWith(
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.black87))),
+                                DataColumn(
+                                    label: Text("Date & Time",
+                                        style: theme.textTheme.titleSmall
+                                            ?.copyWith(
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.black87))),
+                                DataColumn(
+                                    label: Text("Purpose", // ADDED COLUMN
+                                        style: theme.textTheme.titleSmall
+                                            ?.copyWith(
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.black87))),
+                                DataColumn(
+                                    label: Text("Status", // ADDED COLUMN
+                                        style: theme.textTheme.titleSmall
+                                            ?.copyWith(
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.black87))),
+                                DataColumn(
+                                    label: Text("Vet Notes",
+                                        style: theme.textTheme.titleSmall
+                                            ?.copyWith(
+                                                fontWeight: FontWeight.bold,
+                                                color: Colors.black87))),
+                              ],
+                              rows: combinedDocs.asMap().entries.map((entry) {
+                                int index = entry.key;
+                                var data = entry.value;
+                                final formattedDate =
+                                    _formatDate(data['Appointment Date'] as Timestamp?);
+
+                                return DataRow(
+                                  // Zebra Stripping for readability
+                                  color: MaterialStateProperty.resolveWith<Color?>(
+                                    (Set<MaterialState> states) {
+                                      if (states.contains(MaterialState.hovered)) {
+                                        return primaryGreen.withOpacity(0.05);
+                                      }
+                                      return index % 2 == 0
+                                          ? Colors.white
+                                          : Colors.grey[100];
+                                    },
+                                  ),
+                                  cells: [
+                                    DataCell(Text(data['Patient Name'] ?? '-',
+                                        style: theme.textTheme.bodyMedium?.copyWith(
+                                            fontWeight: FontWeight.w600,
+                                            color: primaryGreen))),
+                                    DataCell(Text(data['Species'] ?? '-',
+                                        style: theme.textTheme.bodyMedium)),
+                                    DataCell(Text(data['Breed'] ?? '-',
+                                        style: theme.textTheme.bodyMedium)),
+                                    DataCell(Text(data['Sex'] ?? '-', // ADDED CELL
+                                        style: theme.textTheme.bodyMedium)),
+                                    DataCell(Text(data['Owner Info'] ?? '-',
+                                        style: theme.textTheme.bodyMedium)),
+                                    DataCell(Text(formattedDate,
+                                        style: theme.textTheme.bodyMedium?.copyWith(
+                                            fontStyle: FontStyle.italic))),
+                                    DataCell(Text(data['Purpose'] ?? '-', // ADDED CELL
+                                        style: theme.textTheme.bodyMedium)),
+                                    DataCell(Text(data['Status'] ?? '-', // ADDED CELL
+                                        style: theme.textTheme.bodyMedium)),
+                                    DataCell(
+                                      Text(
+                                        data['Vet Notes'] ?? '-',
+                                        style: theme.textTheme.bodyMedium,
+                                        overflow: TextOverflow.ellipsis,
+                                        maxLines: 2, // Allow vet notes to wrap slightly
+                                      ),
+                                    ),
+                                  ],
+                                  onSelectChanged: (_) {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) => AppointmentsPage(
+                                          appointmentDoc: data['appointmentDoc'],
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                );
+                              }).toList(),
+                            ),
                           ),
                         ),
                       );
                     },
-                  ),
-                ),
-              ],
+                  );
+                },
+              ),
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _sidebarItem(String title,
-      {required IconData icon, bool selected = false, VoidCallback? onTap}) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        width: double.infinity,
-        padding:
-            const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
-        decoration: BoxDecoration(
-          color: selected ? Colors.white24 : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, color: Colors.white, size: 20),
-            const SizedBox(width: 12),
-            Text(
-              title,
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 16,
-                fontWeight: selected ? FontWeight.bold : FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
