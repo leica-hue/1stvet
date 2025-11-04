@@ -86,7 +86,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   int pendingCount = 0;
   int declinedCount = 0;
   int completedCount = 0;
-  int canceledCount = 0;
+  int cancelledCount = 0;
 
   String _name = '';
   String _location = '';
@@ -254,7 +254,7 @@ Future<void> _loadAppointments() async {
       pendingCount = pending;
       declinedCount = declined;
       completedCount = completed;
-      canceledCount = cancelled;
+      cancelledCount = cancelled;
 
       _vetRatingCount = ratingCount;
       _averagevetRating = ratingCount > 0 ? totalRating / ratingCount : 0.0;
@@ -629,7 +629,7 @@ Widget _buildRatingAndSummaryBox() {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Appointment Summary (Total: ${confirmedCount + pendingCount + declinedCount + completedCount + canceledCount})',
+              'Appointment Summary (Total: ${confirmedCount + pendingCount + declinedCount + completedCount + cancelledCount})',
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
@@ -637,11 +637,11 @@ Widget _buildRatingAndSummaryBox() {
               spacing: 16,
               runSpacing: 12,
               children: [
-                _statusCount('Pending', pendingCount, color: Colors.orange),
-                _statusCount('Confirmed', confirmedCount, color: Colors.green),
-                _statusCount('Declined', declinedCount, color: Colors.red),
-                _statusCount('Completed', completedCount, color: Colors.blue),
-                _statusCount('Cancelled', canceledCount,
+                _statusCount('pending', pendingCount, color: Colors.orange),
+                _statusCount('confirmed', confirmedCount, color: Colors.green),
+                _statusCount('declined', declinedCount, color: Colors.red),
+                _statusCount('completed', completedCount, color: Colors.blue),
+                _statusCount('cancelled', cancelledCount,
                     color: const Color.fromARGB(255, 247, 0, 255)),
               ],
             ),

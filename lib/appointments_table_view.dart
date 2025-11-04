@@ -49,7 +49,7 @@ class _AppointmentsTableViewState extends State<AppointmentsTableView> {
                   iconEnabledColor: const Color(0xFF728D5A),
                   style: const TextStyle(
                       color: Colors.black, fontWeight: FontWeight.w500),
-                  items: ["All", "Pending", "Confirmed", "Declined", "Completed"]
+                  items: ["All", "pending", "confirmed", "declined", "completed", "cancelled"]
                       .map((s) => DropdownMenuItem(
                             value: s,
                             child: Text(s),
@@ -188,7 +188,7 @@ class _AppointmentsTableViewState extends State<AppointmentsTableView> {
               DropdownButtonFormField<String>(
                 value: status,
                 decoration: const InputDecoration(labelText: "Status"),
-                items: ["Pending", "Confirmed", "Declined", "Completed"]
+                items: ["pending", "confirmed", "declined", "completed", "cancelled"]
                     .map((s) => DropdownMenuItem(value: s, child: Text(s)))
                     .toList(),
                 onChanged: (val) {
@@ -236,14 +236,16 @@ class _AppointmentsTableViewState extends State<AppointmentsTableView> {
   /// Status color logic
   Color _getStatusColor(String status) {
     switch (status) {
-      case "Confirmed":
+      case "confirmed":
         return Colors.green;
-      case "Declined":
+      case "declined":
         return Colors.red;
-      case "Pending":
+      case "pending":
         return Colors.orange;
-      case "Completed":
+      case "completed":
         return Colors.blue;
+      case "cancelled":
+        return const Color.fromARGB(255, 56, 3, 70);
       default:
         return Colors.black;
     }

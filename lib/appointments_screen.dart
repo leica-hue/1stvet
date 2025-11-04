@@ -43,6 +43,7 @@ class Appointment {
   String status;
   String vetNotes;
   String userId;
+  String vetId;
   DateTime? createdAt;
   String vetName;
   String vetSpecialty;
@@ -61,6 +62,7 @@ class Appointment {
     this.status = "Pending",
     this.vetNotes = "",
     required this.userId,
+    required this.vetId,
     this.createdAt,
     this.vetName = '',
     this.vetSpecialty = '',
@@ -72,8 +74,7 @@ class Appointment {
 
   static Appointment fromDoc(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
-    
-    // Safely cast to Timestamp? and use null-coalescing for a fallback date.
+
     final Timestamp? apptTs = data['appointmentDateTime'] as Timestamp?;
     final Timestamp? createdAtTs = data['createdAt'] as Timestamp?;
 
@@ -86,9 +87,9 @@ class Appointment {
       userName: data['userName'] ?? '',
       status: data['status'] ?? 'Pending',
       vetNotes: data['vetNotes'] ?? '',
-      userId: data['userId'] ?? data['vetId'] ?? '',
+      userId: data['userId'] ?? '',
+      vetId: data['vetId'] ?? '',
       createdAt: createdAtTs?.toDate(),
-
       vetName: data['vetName'] ?? 'N/A',
       vetSpecialty: data['vetSpecialty'] ?? 'N/A',
       vetRating: (data['vetRating'] as num?)?.toInt() ?? 0,
@@ -109,21 +110,18 @@ class AppointmentsPage extends StatefulWidget {
 class _AppointmentsPageState extends State<AppointmentsPage> {
   DateTime _focusedDay = DateTime.now();
   DateTime? _selectedDay;
-  String _selectedFilter = "All";
-  //bool _showOnlyMine = false; // toggle for filtering dynamically
-
+  String _selectedFilter = "all";
   final user = FirebaseAuth.instance.currentUser;
 
   Stream<QuerySnapshot> _getAppointmentStream() {
-    if ( user != null) {
+    if (user != null) {
+      // ✅ Vet will only see appointments assigned to them
       return FirebaseFirestore.instance
           .collection('user_appointments')
-          .where('userId', isEqualTo: user?.uid)
+          .where('vetId', isEqualTo: user!.uid)
           .snapshots();
     } else {
-      return FirebaseFirestore.instance.collection('user_appointments')
-      .where('userId', isEqualTo: 'none')
-      .snapshots();
+      return const Stream.empty();
     }
   }
 
@@ -162,7 +160,7 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
                   child: const Text(
-                    "Appointments",
+                    "Appointments (Vet Access)",
                     style: TextStyle(
                         fontSize: 28,
                         fontWeight: FontWeight.bold,
@@ -170,7 +168,7 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                   ),
                 ),
 
-                // Main content
+                // Main Content
                 Expanded(
                   child: Padding(
                     padding: const EdgeInsets.all(24.0),
@@ -193,7 +191,7 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                             .toList();
 
                         final filteredAppointments = appointments.where((appt) {
-                          return _selectedFilter == "All" ||
+                          return _selectedFilter == "all" ||
                               appt.status == _selectedFilter;
                         }).toList();
 
@@ -203,73 +201,14 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            // ✅ Toggle for All vs Mine
                             Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Row(
-                                  children: [
-                                    _tabButton("All"),
-                                    _tabButton("Pending"),
-                                    _tabButton("Confirmed"),
-                                    _tabButton("Declined"),
-                                    _tabButton("Completed"),
-                                    _tabButton("Cancelled"),
-                                    const SizedBox(width: 10),
-                                    ElevatedButton(
-                                      style: ElevatedButton.styleFrom(
-                                          backgroundColor:
-                                              const Color(0xFF728D5A),
-                                          foregroundColor: Colors.white),
-                                      onPressed: () {
-                                        Navigator.push(
-                                          context,
-                                          MaterialPageRoute(
-                                            builder: (_) => AppointmentsTableView(
-                                                appointments: appointments),
-                                          ),
-                                        );
-                                      },
-                                      child: const Text("Table View"),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    ElevatedButton(
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor:
-                                            const Color(0xFF9DBD81),
-                                        foregroundColor: Colors.white,
-                                      ),
-                                      onPressed: () {
-                                        Navigator.push(
-                                          context,
-                                          MaterialPageRoute(
-                                            builder: (_) => VetNotesScreen(
-                                              appointments: appointments,
-                                              onSave: () async {},
-                                            ),
-                                          ),
-                                        );
-                                      },
-                                      child: const Text("History & Notes"),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    ElevatedButton(
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: Colors.blueGrey,
-                                        foregroundColor: Colors.white,
-                                      ),
-                                      onPressed: () {
-                                        Navigator.push(
-                                          context,
-                                          MaterialPageRoute(
-                                              builder: (_) =>
-                                                  const CreateZoomMeetingScreen()),
-                                        );
-                                      },
-                                      child: const Text("Join Zoom"),
-                                    ),
-                                  ],
-                                ),
+                                _tabButton("all"),
+                                _tabButton("pending"),
+                                _tabButton("confirmed"),
+                                _tabButton("declined"),
+                                _tabButton("completed"),
+                                _tabButton("cancelled"),
                               ],
                             ),
                             const SizedBox(height: 20),
@@ -313,119 +252,123 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
     );
   }
 
-// Inside _AppointmentsPageState
-Widget _appointmentCard(Appointment appt) {
-  Color statusColor;
-  switch (appt.status) {
-    case "Confirmed":
-      statusColor = Colors.green;
-      break;
-    case "Declined":
-      statusColor = Colors.red;
-      break;
-    case "Completed":
-      statusColor = Colors.blue;
-      break;
-    case "cancelled": // Added based on your screenshot
-      statusColor = Colors.purple;
-      break;
-    default:
-      statusColor = Colors.orange;
-  }
+  Widget _appointmentCard(Appointment appt) {
+    Color statusColor;
+    switch (appt.status) {
+      case "confirmed":
+        statusColor = Colors.green;
+        break;
+      case "declined":
+        statusColor = Colors.red;
+        break;
+      case "completed":
+        statusColor = Colors.blue;
+        break;
+      case "cancelled":
+        statusColor = Colors.purple;
+        break;
+      default:
+        statusColor = Colors.orange;
+    }
 
-  return Container(
-    margin: const EdgeInsets.only(bottom: 16),
-    padding: const EdgeInsets.all(16),
-    decoration: BoxDecoration(
-      border: Border.all(color: Colors.grey.shade300),
-      borderRadius: BorderRadius.circular(12),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                appt.petName,
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey.shade300),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  appt.petName,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.bold, fontSize: 16),
+                ),
+              ),
+              Text(
+                "₱${appt.cost}",
                 style: const TextStyle(
-                    fontWeight: FontWeight.bold, fontSize: 16),
+                    fontWeight: FontWeight.bold, color: Color(0xFF728D5A)),
               ),
-            ),
-            // 🆕 Display Cost
-            Text(
-              "Cost: ₱${appt.cost}",
-              style: const TextStyle(
-                  fontWeight: FontWeight.bold, color: Color(0xFF728D5A)),
-            ),
-            const SizedBox(width: 10),
-            DropdownButton<String>(
-              value: appt.status,
-              underline: const SizedBox(),
-              items: ["Pending", "Confirmed", "Declined", "Completed", "cancelled"]
-                  .map((s) => DropdownMenuItem(value: s, child: Text(s)))
-                  .toList(),
-              onChanged: (newStatus) async {
-                if (newStatus != null) {
-                  await FirebaseFirestore.instance
-                      .collection('appointments')
-                      .doc(appt.id)
-                      .update({'status': newStatus});
-                }
-              },
-            ),
-            Container(
-              width: 12,
-              height: 12,
-              margin: const EdgeInsets.only(left: 6),
-              decoration: BoxDecoration(
-                color: statusColor,
-                shape: BoxShape.circle,
+              const SizedBox(width: 10),
+
+              // ✅ Vet can update status
+              DropdownButton<String>(
+                value: appt.status,
+                underline: const SizedBox(),
+                items: [
+                  "pending",
+                  "confirmed",
+                  "declined",
+                  "completed",
+                  "cancelled"
+                ].map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+                onChanged: (newStatus) async {
+                  if (newStatus != null) {
+                    await FirebaseFirestore.instance
+                        .collection('user_appointments')
+                        .doc(appt.id)
+                        .update({'status': newStatus});
+                  }
+                },
               ),
+
+              Container(
+                width: 12,
+                height: 12,
+                margin: const EdgeInsets.only(left: 6),
+                decoration: BoxDecoration(
+                  color: statusColor,
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text("${appt.reason} (${appt.appointmentType})"),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              const Icon(Icons.access_time, size: 18),
+              const SizedBox(width: 6),
+              Text(appt.timeSlot),
+              const SizedBox(width: 20),
+              const Icon(Icons.person, size: 18),
+              const SizedBox(width: 6),
+              Text(appt.userName),
+              const SizedBox(width: 20),
+              const Icon(Icons.email_outlined, size: 18),
+              const SizedBox(width: 6),
+              Text(appt.userEmail),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              const Icon(Icons.medical_services_outlined, size: 18),
+              const SizedBox(width: 6),
+              Text("${appt.vetName} (${appt.vetSpecialty})",
+                  style: const TextStyle(fontStyle: FontStyle.italic)),
+              const Spacer(),
+              const Icon(Icons.star, size: 16, color: Colors.amber),
+              Text(appt.vetRating.toString()),
+            ],
+          ),
+          if (appt.vetNotes.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 6.0),
+              child: Text("Notes: ${appt.vetNotes}",
+                  style: const TextStyle(fontStyle: FontStyle.italic)),
             ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        // 🆕 Display reason and appointmentType
-        Text("${appt.reason} (${appt.appointmentType})"), 
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            const Icon(Icons.access_time, size: 18),
-            const SizedBox(width: 6),
-            Text(appt.timeSlot), // Using new field timeSlot
-            const SizedBox(width: 20),
-            const Icon(Icons.person, size: 18),
-            const SizedBox(width: 6),
-            Text(appt.userName), // Using new field userName
-            const SizedBox(width: 20),
-            const Icon(Icons.email_outlined, size: 18), // New: User Email
-            const SizedBox(width: 6),
-            Text(appt.userEmail),
-          ],
-        ),
-        const SizedBox(height: 8),
-        // 🆕 Display Vet Info and Rating
-        Row(
-          children: [
-            const Icon(Icons.medical_services_outlined, size: 18, color: Colors.grey),
-            const SizedBox(width: 6),
-            Text("${appt.vetName} (${appt.vetSpecialty})",
-                style: const TextStyle(fontSize: 14, fontStyle: FontStyle.italic)),
-            const Spacer(),
-            const Icon(Icons.star, size: 16, color: Colors.amber),
-            Text(appt.vetRating.toString()),
-          ],
-        ),
-        const SizedBox(height: 8),
-        if (appt.vetNotes.isNotEmpty)
-          Text("Notes: ${appt.vetNotes}",
-              style: const TextStyle(
-                  fontStyle: FontStyle.italic, fontSize: 14)),
-      ],
-    ),
-  );
-}
+        ],
+      ),
+    );
+  }
 
   Widget _buildSidebar() {
     return Container(
@@ -434,7 +377,6 @@ Widget _appointmentCard(Appointment appt) {
       child: Column(
         children: [
           const SizedBox(height: 30),
-          // 
           Image.asset('assets/furever2.png', width: 140),
           const SizedBox(height: 40),
           _sidebarItem(Icons.person_outline, "Profile"),
