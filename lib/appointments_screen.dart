@@ -160,7 +160,7 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                   padding:
                       const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
                   child: const Text(
-                    "Appointments (Vet Access)",
+                    "Appointments",
                     style: TextStyle(
                         fontSize: 28,
                         fontWeight: FontWeight.bold,

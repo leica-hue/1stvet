@@ -155,7 +155,7 @@ void _setupRatingListener() {
 
   _ratingSubscription = _firestore
       .collection('user_appointments')
-      .where('userId', isEqualTo: user.uid)
+      .where('vetId', isEqualTo: user.uid)
       .snapshots()
       .listen((snapshot) {
     if (!mounted) return;
@@ -196,7 +196,7 @@ Future<void> _loadAppointments() async {
     // ✅ Fetch all appointments for this vet
     final snapshot = await _firestore
         .collection('user_appointments')
-        .where('userId', isEqualTo: user.uid) // match by user ID
+        .where('vetId', isEqualTo: user.uid) // match by vet ID
         .get();
 
     final docs = snapshot.docs;

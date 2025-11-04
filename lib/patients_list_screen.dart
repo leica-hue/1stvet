@@ -81,7 +81,7 @@ class _PatientHistoryScreenState extends State<PatientHistoryScreen> {
                   splashRadius: 20,
                 ),
                 Text(
-                  "Patient History",
+                  "Patient History and Information",
                   style: theme.textTheme.headlineSmall?.copyWith(
                     fontWeight: FontWeight.bold,
                     color: Colors.grey[800],

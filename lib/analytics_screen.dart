@@ -31,7 +31,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     // 🔹 Listen to user_appointments for this vet
     _firestore
         .collection('user_appointments')
-        .where('userId', isEqualTo: user!.uid)
+        .where('vetId', isEqualTo: user!.uid)
         .snapshots()
         .listen((snapshot) {
       final docs = snapshot.docs;
@@ -46,8 +46,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
       for (var doc in docs) {
         final data = doc.data();
-        if (data.containsKey('userId')) {
-          patientSet.add(data['userId']);
+        if (data.containsKey('vetId')) {
+          patientSet.add(data['vetId']);
         }
 
         // Count vet ratings
