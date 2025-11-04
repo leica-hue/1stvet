@@ -1,3 +1,4 @@
+import 'dart:async'; // Added for StreamSubscription
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -14,42 +15,50 @@ import 'user_prefs.dart';
 
 class Appointment {
   final String petName;
-  final String purpose;
-  final String time;
-  final String owner;
+  final String timeSlot;
+  final String userName;
+  final String userId;
   final String status;
-  final DateTime date;
+  final DateTime appointmentDateTime;
+  final String id; // Document ID
 
   Appointment({
     required this.petName,
-    required this.purpose,
-    required this.time,
-    required this.owner,
+    required this.timeSlot,
+    required this.userName,
     required this.status,
-    required this.date,
+    required this.appointmentDateTime,
+    required this.userId,
+    required this.id,
   });
 
-  factory Appointment.fromJson(Map<String, dynamic> json) {
+  // CRITICAL FIX: Get the ID from the document object, not the data map.
+  factory Appointment.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = doc.data()!;
     return Appointment(
-      petName: json['petName'] ?? '',
-      purpose: json['purpose'] ?? '',
-      time: json['time'] ?? '',
-      owner: json['owner'] ?? '',
-      status: json['status'] ?? 'Pending',
-      date: (json['date'] is Timestamp)
-          ? (json['date'] as Timestamp).toDate()
-          : DateTime.tryParse(json['date'].toString()) ?? DateTime.now(),
+      petName: data['petName'] ?? '',
+      timeSlot: data['timeSlot'] ?? '',
+      userName: data['userName'] ?? '',
+      userId: data['userId'] ?? '',
+      // FIX: Get document ID from doc.id
+      id: doc.id, 
+      status: data['status'] ?? 'Pending',
+      appointmentDateTime: (data['appointmentDateTime'] is Timestamp)
+          ? (data['appointmentDateTime'] as Timestamp).toDate()
+          // Fallback parsing for non-Timestamp/ISO date strings
+          : DateTime.tryParse(data['appointmentDateTime'].toString()) ?? DateTime.now(),
     );
   }
 
   Map<String, dynamic> toJson() => {
-        'petName': petName,
-        'purpose': purpose,
-        'time': time,
-        'owner': owner,
-        'status': status,
-        'date': date.toIso8601String(),
-      };
+    'petName': petName,
+    'timeSlot': timeSlot,
+    'userName': userName,
+    'userId': userId,
+    'status': status,
+    // Store as Timestamp in Firestore if you prefer, but Iso8601String is fine for JSON.
+    'appointmentDateTime': appointmentDateTime, 
+  };
 }
 
 class DashboardScreen extends StatefulWidget {
@@ -63,9 +72,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final user = FirebaseAuth.instance.currentUser;
 
-  double _averageRating = 0.0;
-  int _ratingCount = 0;
-  int _selectedRating = 0;
+  // Added StreamSubscription for real-time rating updates
+  late StreamSubscription _ratingSubscription;
+
+  double _averagevetRating = 0.0;
+  int _vetRatingCount = 0;
+  // Removed unused _selectedRating
 
   List<Appointment> _appointments = [];
   bool _isLoading = true;
@@ -74,6 +86,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   int pendingCount = 0;
   int declinedCount = 0;
   int completedCount = 0;
+  int canceledCount = 0;
 
   String _name = '';
   String _location = '';
@@ -88,8 +101,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
     super.initState();
     _loadProfile();
     _loadVetStatus();
-    _loadRatings();
+    _setupRatingListener(); // Uses stream for real-time updates
     _loadAppointments();
+  }
+  
+  // Dispose the stream listener to prevent memory leaks
+  @override
+  void dispose() {
+    _ratingSubscription.cancel();
+    super.dispose();
   }
 
   // Load vet status from Firestore
@@ -128,37 +148,40 @@ class _DashboardScreenState extends State<DashboardScreen> {
     });
   }
 
-  // Load Firestore ratings
-Future<void> _loadRatings() async {
-  try {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
+  // Setup Firestore ratings listener (Replaces _loadVetRating for real-time)
+void _setupRatingListener() {
+  final user = FirebaseAuth.instance.currentUser;
+  if (user == null) return;
 
-    // Read the vet’s own rating document
-    final doc = await _firestore.collection('ratings').doc(user.uid).get();
+  _ratingSubscription = _firestore
+      .collection('user_appointments')
+      .where('userId', isEqualTo: user.uid)
+      .snapshots()
+      .listen((snapshot) {
+    if (!mounted) return;
 
-    if (doc.exists) {
-      final data = doc.data()!;
-      if (!mounted) return;
-      setState(() {
-        _averageRating = (data['avg'] ?? 0).toDouble();
-        _ratingCount = (data['count'] ?? 0).toInt();
-      });
-    } else {
-      // No ratings yet
-      if (!mounted) return;
-      setState(() {
-        _averageRating = 0;
-        _ratingCount = 0;
-      });
+    double total = 0;
+    int count = 0;
+
+    for (var doc in snapshot.docs) {
+      final data = doc.data();
+      if (data['vetRating'] != null) {
+        total += (data['vetRating'] as num).toDouble();
+        count++;
+      }
     }
-  } catch (e) {
-    debugPrint('Error loading ratings: $e');
-  }
+
+    setState(() {
+      _vetRatingCount = count;
+      _averagevetRating = count > 0 ? total / count : 0.0;
+    });
+  }, onError: (e) {
+    debugPrint('Error listening to ratings: $e');
+  });
 }
 
-
   // Load appointments
+// 🔹 Get all appointments of this vet and calculate summary + ratings
 Future<void> _loadAppointments() async {
   try {
     setState(() => _isLoading = true);
@@ -170,34 +193,71 @@ Future<void> _loadAppointments() async {
       return;
     }
 
-    // ✅ Query only this vet’s appointments
+    // ✅ Fetch all appointments for this vet
     final snapshot = await _firestore
-        .collection('appointments')
-        .where('vetId', isEqualTo: user.uid)
+        .collection('user_appointments')
+        .where('userId', isEqualTo: user.uid) // match by user ID
         .get();
 
-    // ✅ Safely handle no results
-    final List<Appointment> loadedAppointments = snapshot.docs.isNotEmpty
-        ? snapshot.docs.map((doc) => Appointment.fromJson(doc.data())).toList()
+    final docs = snapshot.docs;
+
+    // ✅ Map the appointments into objects
+    final List<Appointment> loadedAppointments = docs.isNotEmpty
+        ? docs.map((doc) => Appointment.fromFirestore(doc)).toList()
         : [];
+
+    // ✅ Calculate counts for statuses
+    int confirmed = 0;
+    int pending = 0;
+    int declined = 0;
+    int completed = 0;
+    int cancelled = 0;
+
+    double totalRating = 0;
+    int ratingCount = 0;
+
+    for (var doc in docs) {
+      final data = doc.data();
+      final status = data['status']?.toString().toLowerCase() ?? '';
+
+      switch (status) {
+        case 'confirmed':
+          confirmed++;
+          break;
+        case 'pending':
+          pending++;
+          break;
+        case 'declined':
+          declined++;
+          break;
+        case 'completed':
+          completed++;
+          break;
+        case 'cancelled':
+          cancelled++;
+          break;
+      }
+
+      // ✅ Calculate ratings (if vetRating exists)
+      if (data['vetRating'] != null) {
+        totalRating += (data['vetRating'] as num).toDouble();
+        ratingCount++;
+      }
+    }
 
     if (!mounted) return;
 
     setState(() {
       _appointments = loadedAppointments;
 
-      // ✅ Reset all counts to 0 before recounting
-      confirmedCount = 0;
-      pendingCount = 0;
-      declinedCount = 0;
-      completedCount = 0;
+      confirmedCount = confirmed;
+      pendingCount = pending;
+      declinedCount = declined;
+      completedCount = completed;
+      canceledCount = cancelled;
 
-      if (_appointments.isNotEmpty) {
-        confirmedCount = _appointments.where((a) => a.status == 'Confirmed').length;
-        pendingCount = _appointments.where((a) => a.status == 'Pending').length;
-        declinedCount = _appointments.where((a) => a.status == 'Declined').length;
-        completedCount = _appointments.where((a) => a.status == 'Completed').length;
-      }
+      _vetRatingCount = ratingCount;
+      _averagevetRating = ratingCount > 0 ? totalRating / ratingCount : 0.0;
 
       _isLoading = false;
     });
@@ -216,6 +276,7 @@ Future<void> _loadAppointments() async {
         await _loadProfile();
         break;
       case 'Appointments':
+        // Ensure AppointmentsPage can handle null if used from dashboard
         await Navigator.push(context, MaterialPageRoute(builder: (_) => AppointmentsPage(appointmentDoc: null)));
         await _loadAppointments();
         break;
@@ -256,9 +317,9 @@ Future<void> _loadAppointments() async {
   Widget build(BuildContext context) {
     final today = DateTime.now();
     final todayAppointments = _appointments.where((appt) =>
-        appt.date.year == today.year &&
-        appt.date.month == today.month &&
-        appt.date.day == today.day).toList();
+        appt.appointmentDateTime.year == today.year &&
+        appt.appointmentDateTime.month == today.month &&
+        appt.appointmentDateTime.day == today.day).toList();
 
     return Scaffold(
       body: Row(
@@ -325,88 +386,88 @@ Future<void> _loadAppointments() async {
     );
   }
 
-Widget _buildProfileHeader() {
-  return Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      // Deactivation Banner
-      if (_vetStatus.contains('Deactivated'))
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(12),
-          margin: const EdgeInsets.only(bottom: 12),
-          decoration: BoxDecoration(
-            color: Colors.red.shade300,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: const Text(
-            'Your account is deactivated. You are marked as unavailable.',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-          ),
-        ),
-
-      Row(
-        children: [
-          CircleAvatar(
-            radius: 32,
-            backgroundColor: Colors.grey.shade300,
-            backgroundImage: _profileImage != null ? FileImage(_profileImage!) : null,
-            child: _profileImage == null
-                ? const Icon(Icons.person, size: 40, color: Colors.white)
-                : null,
-          ),
-          const SizedBox(width: 20),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(_name, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-              Text(_location),
-              Text(_specialization, style: const TextStyle(color: Colors.black87)),
-              const SizedBox(height: 6),
-              Row(
-                children: [
-                  if (_isVerified)
-                    const Row(
-                      children: [
-                        Icon(Icons.verified, size: 16, color: Colors.green),
-                        SizedBox(width: 4),
-                        Text('License Verified'),
-                      ],
-                    )
-                  else
-                    ElevatedButton(
-                      onPressed: _verifyLicense,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFEAF086),
-                        foregroundColor: Colors.black,
-                        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                      ),
-                      child: const Text('Verify License'),
-                    ),
-                  const SizedBox(width: 16),
-                  Text('Status: $_vetStatus',
-                      style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87)),
-                ],
-              ),
-            ],
-          ),
-          const Spacer(),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFEAF086),
-              foregroundColor: Colors.black,
+  Widget _buildProfileHeader() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Deactivation Banner
+        if (_vetStatus.contains('Deactivated'))
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(12),
+            margin: const EdgeInsets.only(bottom: 12),
+            decoration: BoxDecoration(
+              color: Colors.red.shade300,
+              borderRadius: BorderRadius.circular(8),
             ),
-            onPressed: () async {
-              await Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen()));
-              await _loadProfile();
-            },
-            child: const Text('Edit Profile'),
+            child: const Text(
+              'Your account is deactivated. You are marked as unavailable.',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            ),
           ),
-        ],
-      ),
-    ],
-  );
-}
+
+        Row(
+          children: [
+            CircleAvatar(
+              radius: 32,
+              backgroundColor: Colors.grey.shade300,
+              backgroundImage: _profileImage != null ? FileImage(_profileImage!) : null,
+              child: _profileImage == null
+                  ? const Icon(Icons.person, size: 40, color: Colors.white)
+                  : null,
+            ),
+            const SizedBox(width: 20),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(_name, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                Text(_location),
+                Text(_specialization, style: const TextStyle(color: Colors.black87)),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    if (_isVerified)
+                      const Row(
+                        children: [
+                          Icon(Icons.verified, size: 16, color: Colors.green),
+                          SizedBox(width: 4),
+                          Text('License Verified'),
+                        ],
+                      )
+                    else
+                      ElevatedButton(
+                        onPressed: _verifyLicense,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFEAF086),
+                          foregroundColor: Colors.black,
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                        ),
+                        child: const Text('Verify License'),
+                      ),
+                    const SizedBox(width: 16),
+                    Text('Status: $_vetStatus',
+                        style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87)),
+                  ],
+                ),
+              ],
+            ),
+            const Spacer(),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFEAF086),
+                foregroundColor: Colors.black,
+              ),
+              onPressed: () async {
+                await Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen()));
+                await _loadProfile();
+              },
+              child: const Text('Edit Profile'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
 
   Widget _buildAppointmentsSection(List<Appointment> todayAppointments) {
     return Column(
@@ -443,8 +504,9 @@ Widget _buildProfileHeader() {
             ),
             const SizedBox(width: 24),
             Expanded(flex: 2, child: _buildRatingAndSummaryBox()),
-            if (_ratingCount == 0)
-              const Text('No ratings yet', style: TextStyle(color: Colors.grey)),
+            // The check below is redundant as _buildRatingAndSummaryBox() will handle 0 count
+            // if (_ratingCount == 0)
+            //   const Text('No ratings yet', style: TextStyle(color: Colors.grey)),
 
           ],
         )
@@ -464,7 +526,7 @@ Widget _buildProfileHeader() {
       case "Completed":
         statusColor = Colors.blue;
         break;
-      case "Canceled":
+      case "Cancelled":
         statusColor = Colors.orange;
         break;
       default:
@@ -481,24 +543,31 @@ Widget _buildProfileHeader() {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(appt.petName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-            Text(appt.purpose),
             const SizedBox(height: 10),
             Row(children: [
               const Icon(Icons.access_time),
               const SizedBox(width: 6),
-              Text(appt.time)
+              Text(appt.timeSlot)
             ]),
             const SizedBox(height: 6),
             Row(children: [
               const Icon(Icons.person),
               const SizedBox(width: 6),
-              Text(appt.owner)
+              Text(appt.userName)
             ]),
             const SizedBox(height: 12),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                TextButton(onPressed: () {}, child: const Text('View Details')),
+                TextButton(onPressed: () async {
+                  await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => AppointmentsPage(appointmentDoc: appt),
+                    ),
+                  );
+                  await _loadAppointments();
+                }, child: const Text('View Details')),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
@@ -515,61 +584,73 @@ Widget _buildProfileHeader() {
     );
   }
 
-  Widget _buildRatingAndSummaryBox() {
-    return Column(
-      children: [
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            border: Border.all(color: Colors.grey.shade300),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Column(
-            children: [
-              Text(
-                _averageRating.toStringAsFixed(1),
-                style: const TextStyle(fontSize: 42, fontWeight: FontWeight.bold),
-              ),
-              const Icon(Icons.star, color: Colors.green, size: 30),
-              const Text('Overall Rating'),
-              Text(
-                '$_ratingCount Client Feedbacks',
-                style: const TextStyle(color: Colors.grey),
-              ),
-            ],
-          ),
+Widget _buildRatingAndSummaryBox() {
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.center,
+    children: [
+      // Overall Rating Box
+      Container(
+        width: 300, // Fixed width
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.grey.shade300),
+          borderRadius: BorderRadius.circular(12),
         ),
-        const SizedBox(height: 20),
-        Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            border: Border.all(color: Colors.grey.shade300),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Appointment Summary',
-                style: TextStyle(fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  _statusCount('Pending', pendingCount, color: Colors.orange),
-                  _statusCount('Confirmed', confirmedCount, color: Colors.green),
-                  _statusCount('Declined', declinedCount, color: Colors.red),
-                  _statusCount('Completed', completedCount, color: Colors.blue),
-                ],
-              ),
-            ],
-          ),
+        child: Column(
+          children: [
+            Text(
+              _averagevetRating.toStringAsFixed(1),
+              style: const TextStyle(fontSize: 42, fontWeight: FontWeight.bold),
+            ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.star, color: Colors.green, size: 30),
+                const SizedBox(width: 4),
+                Text(
+                  'Overall Rating',
+                  style: TextStyle(color: Colors.grey.shade700),
+                ),
+              ],
+            ),
+          ],
         ),
-      ],
-    );
-  }
+      ),
+      const SizedBox(height: 20),
+      // Appointment Summary Box
+      Container(
+        width: 430, // Fixed width
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          border: Border.all(color: Colors.grey.shade300),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Appointment Summary (Total: ${confirmedCount + pendingCount + declinedCount + completedCount + canceledCount})',
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 16,
+              runSpacing: 12,
+              children: [
+                _statusCount('Pending', pendingCount, color: Colors.orange),
+                _statusCount('Confirmed', confirmedCount, color: Colors.green),
+                _statusCount('Declined', declinedCount, color: Colors.red),
+                _statusCount('Completed', completedCount, color: Colors.blue),
+                _statusCount('Cancelled', canceledCount,
+                    color: const Color.fromARGB(255, 247, 0, 255)),
+              ],
+            ),
+          ],
+        ),
+      ),
+    ],
+  );
+}
 
   Widget _statusCount(String label, int count, {required Color color}) {
     return Column(

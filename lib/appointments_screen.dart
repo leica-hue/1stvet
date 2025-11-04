@@ -35,58 +35,66 @@ class FureverHealthyApp extends StatelessWidget {
 
 class Appointment {
   String id;
-  DateTime date;
+  DateTime appointmentDateTime;
   String petName;
-  String purpose;
-  String time;
-  String owner;
+  String reason;
+  String timeSlot;
+  String userName;
   String status;
   String vetNotes;
-  String vetId;
+  String userId;
+  DateTime? createdAt;
+  String vetName;
+  String vetSpecialty;
+  int vetRating;
+  int cost;
+  String appointmentType;
+  String userEmail;
 
   Appointment({
     required this.id,
-    required this.date,
+    required this.appointmentDateTime,
     required this.petName,
-    required this.purpose,
-    required this.time,
-    required this.owner,
+    required this.reason,
+    required this.timeSlot,
+    required this.userName,
     this.status = "Pending",
     this.vetNotes = "",
-    required this.vetId,
+    required this.userId,
+    this.createdAt,
+    this.vetName = '',
+    this.vetSpecialty = '',
+    this.vetRating = 0,
+    this.cost = 0,
+    this.appointmentType = '',
+    this.userEmail = '',
   });
 
-  Map<String, dynamic> toJson() => {
-    'date': date,
-    'petName': petName,
-    'purpose': purpose,
-    'time': time,
-    'owner': owner,
-    'status': status,
-    'vetNotes': vetNotes,
-    'vetId': vetId,
-  };
-
-  /**
-   * Corrected fromDoc method to safely handle potential null 'date' fields.
-   */
   static Appointment fromDoc(DocumentSnapshot doc) {
     final data = doc.data() as Map<String, dynamic>;
     
     // Safely cast to Timestamp? and use null-coalescing for a fallback date.
-    final Timestamp? dateTimestamp = data['date'] as Timestamp?;
-    final DateTime appointmentDate = dateTimestamp?.toDate() ?? DateTime(2000); 
+    final Timestamp? apptTs = data['appointmentDateTime'] as Timestamp?;
+    final Timestamp? createdAtTs = data['createdAt'] as Timestamp?;
 
     return Appointment(
       id: doc.id,
-      date: appointmentDate,
+      appointmentDateTime: apptTs?.toDate() ?? DateTime.now(),
       petName: data['petName'] ?? '',
-      purpose: data['purpose'] ?? '',
-      time: data['time'] ?? '',
-      owner: data['owner'] ?? '',
+      reason: data['reason'] ?? '',
+      timeSlot: data['timeSlot'] ?? '',
+      userName: data['userName'] ?? '',
       status: data['status'] ?? 'Pending',
       vetNotes: data['vetNotes'] ?? '',
-      vetId: data['vetId'] ?? '',
+      userId: data['userId'] ?? data['vetId'] ?? '',
+      createdAt: createdAtTs?.toDate(),
+
+      vetName: data['vetName'] ?? 'N/A',
+      vetSpecialty: data['vetSpecialty'] ?? 'N/A',
+      vetRating: (data['vetRating'] as num?)?.toInt() ?? 0,
+      cost: (data['cost'] as num?)?.toInt() ?? 0,
+      appointmentType: data['appointmentType'] ?? 'N/A',
+      userEmail: data['userEmail'] ?? '',
     );
   }
 }
@@ -109,12 +117,12 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
   Stream<QuerySnapshot> _getAppointmentStream() {
     if ( user != null) {
       return FirebaseFirestore.instance
-          .collection('appointments')
-          .where('vetId', isEqualTo: user!.uid)
+          .collection('user_appointments')
+          .where('userId', isEqualTo: user?.uid)
           .snapshots();
     } else {
-      return FirebaseFirestore.instance.collection('appointments')
-      .where('vetId', isEqualTo: 'none')
+      return FirebaseFirestore.instance.collection('user_appointments')
+      .where('userId', isEqualTo: 'none')
       .snapshots();
     }
   }
@@ -190,7 +198,7 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                         }).toList();
 
                         final bookedDates =
-                            appointments.map((e) => e.date).toList();
+                            appointments.map((e) => e.appointmentDateTime).toList();
 
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -206,6 +214,7 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                                     _tabButton("Confirmed"),
                                     _tabButton("Declined"),
                                     _tabButton("Completed"),
+                                    _tabButton("Cancelled"),
                                     const SizedBox(width: 10),
                                     ElevatedButton(
                                       style: ElevatedButton.styleFrom(
@@ -304,88 +313,119 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
     );
   }
 
-  Widget _appointmentCard(Appointment appt) {
-    Color statusColor;
-    switch (appt.status) {
-      case "Confirmed":
-        statusColor = Colors.green;
-        break;
-      case "Declined":
-        statusColor = Colors.red;
-        break;
-      case "Completed":
-        statusColor = Colors.blue;
-        break;
-      default:
-        statusColor = Colors.orange;
-    }
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 16),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey.shade300),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(appt.petName,
-                    style: const TextStyle(
-                        fontWeight: FontWeight.bold, fontSize: 16)),
-              ),
-              DropdownButton<String>(
-                value: appt.status,
-                underline: const SizedBox(),
-                items: ["Pending", "Confirmed", "Declined", "Completed"]
-                    .map((s) => DropdownMenuItem(value: s, child: Text(s)))
-                    .toList(),
-                onChanged: (newStatus) async {
-                  if (newStatus != null) {
-                    await FirebaseFirestore.instance
-                        .collection('appointments')
-                        .doc(appt.id)
-                        .update({'status': newStatus});
-                  }
-                },
-              ),
-              Container(
-                width: 12,
-                height: 12,
-                margin: const EdgeInsets.only(left: 6),
-                decoration: BoxDecoration(
-                  color: statusColor,
-                  shape: BoxShape.circle,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(appt.purpose),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              const Icon(Icons.access_time, size: 18),
-              const SizedBox(width: 6),
-              Text(appt.time),
-              const SizedBox(width: 20),
-              const Icon(Icons.person, size: 18),
-              const SizedBox(width: 6),
-              Text(appt.owner),
-            ],
-          ),
-          const SizedBox(height: 8),
-          if (appt.vetNotes.isNotEmpty)
-            Text("Notes: ${appt.vetNotes}",
-                style: const TextStyle(
-                    fontStyle: FontStyle.italic, fontSize: 14)),
-        ],
-      ),
-    );
+// Inside _AppointmentsPageState
+Widget _appointmentCard(Appointment appt) {
+  Color statusColor;
+  switch (appt.status) {
+    case "Confirmed":
+      statusColor = Colors.green;
+      break;
+    case "Declined":
+      statusColor = Colors.red;
+      break;
+    case "Completed":
+      statusColor = Colors.blue;
+      break;
+    case "cancelled": // Added based on your screenshot
+      statusColor = Colors.purple;
+      break;
+    default:
+      statusColor = Colors.orange;
   }
+
+  return Container(
+    margin: const EdgeInsets.only(bottom: 16),
+    padding: const EdgeInsets.all(16),
+    decoration: BoxDecoration(
+      border: Border.all(color: Colors.grey.shade300),
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                appt.petName,
+                style: const TextStyle(
+                    fontWeight: FontWeight.bold, fontSize: 16),
+              ),
+            ),
+            // 🆕 Display Cost
+            Text(
+              "Cost: ₱${appt.cost}",
+              style: const TextStyle(
+                  fontWeight: FontWeight.bold, color: Color(0xFF728D5A)),
+            ),
+            const SizedBox(width: 10),
+            DropdownButton<String>(
+              value: appt.status,
+              underline: const SizedBox(),
+              items: ["Pending", "Confirmed", "Declined", "Completed", "cancelled"]
+                  .map((s) => DropdownMenuItem(value: s, child: Text(s)))
+                  .toList(),
+              onChanged: (newStatus) async {
+                if (newStatus != null) {
+                  await FirebaseFirestore.instance
+                      .collection('appointments')
+                      .doc(appt.id)
+                      .update({'status': newStatus});
+                }
+              },
+            ),
+            Container(
+              width: 12,
+              height: 12,
+              margin: const EdgeInsets.only(left: 6),
+              decoration: BoxDecoration(
+                color: statusColor,
+                shape: BoxShape.circle,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        // 🆕 Display reason and appointmentType
+        Text("${appt.reason} (${appt.appointmentType})"), 
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            const Icon(Icons.access_time, size: 18),
+            const SizedBox(width: 6),
+            Text(appt.timeSlot), // Using new field timeSlot
+            const SizedBox(width: 20),
+            const Icon(Icons.person, size: 18),
+            const SizedBox(width: 6),
+            Text(appt.userName), // Using new field userName
+            const SizedBox(width: 20),
+            const Icon(Icons.email_outlined, size: 18), // New: User Email
+            const SizedBox(width: 6),
+            Text(appt.userEmail),
+          ],
+        ),
+        const SizedBox(height: 8),
+        // 🆕 Display Vet Info and Rating
+        Row(
+          children: [
+            const Icon(Icons.medical_services_outlined, size: 18, color: Colors.grey),
+            const SizedBox(width: 6),
+            Text("${appt.vetName} (${appt.vetSpecialty})",
+                style: const TextStyle(fontSize: 14, fontStyle: FontStyle.italic)),
+            const Spacer(),
+            const Icon(Icons.star, size: 16, color: Colors.amber),
+            Text(appt.vetRating.toString()),
+          ],
+        ),
+        const SizedBox(height: 8),
+        if (appt.vetNotes.isNotEmpty)
+          Text("Notes: ${appt.vetNotes}",
+              style: const TextStyle(
+                  fontStyle: FontStyle.italic, fontSize: 14)),
+      ],
+    ),
+  );
+}
 
   Widget _buildSidebar() {
     return Container(

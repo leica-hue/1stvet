@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+
 class AnalyticsScreen extends StatefulWidget {
   const AnalyticsScreen({super.key});
 
@@ -11,61 +12,60 @@ class AnalyticsScreen extends StatefulWidget {
 
 class _AnalyticsScreenState extends State<AnalyticsScreen> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final user = FirebaseAuth.instance.currentUser;
 
   int totalPatients = 0;
   int totalAppointments = 0;
-  int totalFeedbacks = 0;
-  double averageRating = 0.0;
-  final user = FirebaseAuth.instance.currentUser;
-
+  int totalRatings= 0;
+  double averageVetRating = 0.0;
 
   @override
   void initState() {
     super.initState();
     _fetchAnalyticsData();
-    _listenToRatings(); // ✅ Listen to shared ratings doc
   }
 
-void _fetchAnalyticsData() {
-  if (user == null) return;
+  void _fetchAnalyticsData() {
+    if (user == null) return;
 
-  // Patients linked to this vet
-  _firestore
-      .collection('patients')
-      .where('vetId', isEqualTo: user!.uid)
-      .snapshots()
-      .listen((snapshot) {
-    setState(() {
-      totalPatients = snapshot.docs.length;
-    });
-  });
+    // 🔹 Listen to user_appointments for this vet
+    _firestore
+        .collection('user_appointments')
+        .where('userId', isEqualTo: user!.uid)
+        .snapshots()
+        .listen((snapshot) {
+      final docs = snapshot.docs;
 
-  // Appointments for this vet
-  _firestore
-      .collection('appointments')
-      .where('vetId', isEqualTo: user!.uid)
-      .snapshots()
-      .listen((snapshot) {
-    setState(() {
-      totalAppointments = snapshot.docs.length;
-    });
-  });
-}
+      // Total appointments
+      int appointmentCount = docs.length;
 
-  // ✅ Real-time listener for the ratings/overall doc
-  void _listenToRatings() {
-  if (user == null) return;
+      // Unique patients (by pet name or userId)
+      final patientSet = <String>{};
+      double totalRating = 0;
+      int ratingCount = 0;
 
-  _firestore.collection('ratings').doc(user!.uid).snapshots().listen((doc) {
-    if (doc.exists) {
-      final data = doc.data()!;
+      for (var doc in docs) {
+        final data = doc.data();
+        if (data.containsKey('userId')) {
+          patientSet.add(data['userId']);
+        }
+
+        // Count vet ratings
+        if (data['vetRating'] != null) {
+          totalRating += (data['vetRating'] as num).toDouble();
+          ratingCount++;
+        }
+      }
+
       setState(() {
-        averageRating = (data['avg'] ?? 0).toDouble();
-        totalFeedbacks = (data['count'] ?? 0).toInt();
+        totalAppointments = appointmentCount;
+        totalPatients = patientSet.length;
+        totalRatings = ratingCount;
+        averageVetRating =
+            ratingCount > 0 ? totalRating / ratingCount : 0.0;
       });
-    }
-  });
-}
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -109,11 +109,11 @@ void _fetchAnalyticsData() {
                           Icons.pets, Colors.green),
                       _analyticsCard("Appointments", "$totalAppointments",
                           Icons.event, Colors.blue),
-                      _analyticsCard("Feedback", "$totalFeedbacks",
-                          Icons.message, Colors.orange),
+                      _analyticsCard("Total Ratings", "$totalRatings",
+                          Icons.star, Colors.orange),
                       _analyticsCard(
                         "Avg Rating",
-                        "${averageRating.toStringAsFixed(1)} ⭐",
+                        "${averageVetRating.toStringAsFixed(1)} ⭐",
                         Icons.star,
                         Colors.amber,
                       ),
@@ -140,7 +140,7 @@ void _fetchAnalyticsData() {
                             child: _AnalyticsChart(
                               patients: totalPatients.toDouble(),
                               appointments: totalAppointments.toDouble(),
-                              feedback: totalFeedbacks.toDouble(),
+                              ratings: totalRatings.toDouble(),
                             ),
                           ),
                         ],
@@ -201,17 +201,17 @@ void _fetchAnalyticsData() {
 class _AnalyticsChart extends StatelessWidget {
   final double patients;
   final double appointments;
-  final double feedback;
+  final double ratings;
 
   const _AnalyticsChart({
     required this.patients,
     required this.appointments,
-    required this.feedback,
+    required this.ratings,
   });
 
   @override
   Widget build(BuildContext context) {
-    final maxY = [patients, appointments, feedback].reduce((a, b) => a > b ? a : b);
+    final maxY = [patients, appointments, ratings].reduce((a, b) => a > b ? a : b);
     final safeMaxY = (maxY * 1.2).clamp(10.0, double.infinity);
 
     return BarChart(
@@ -246,7 +246,7 @@ class _AnalyticsChart extends StatelessWidget {
                   case 1:
                     return const Text("Appoint.", style: style);
                   case 2:
-                    return const Text("Feedback", style: style);
+                    return const Text("Ratings", style: style);
                   default:
                     return const Text("");
                 }
@@ -263,7 +263,7 @@ class _AnalyticsChart extends StatelessWidget {
               barRods: [BarChartRodData(toY: appointments, color: Colors.blue, width: 24, borderRadius: BorderRadius.circular(4))]),
           BarChartGroupData(
               x: 2,
-              barRods: [BarChartRodData(toY: feedback, color: Colors.orange, width: 24, borderRadius: BorderRadius.circular(4))]),
+              barRods: [BarChartRodData(toY: ratings, color: Colors.orange, width: 24, borderRadius: BorderRadius.circular(4))]),
         ],
       ),
     );

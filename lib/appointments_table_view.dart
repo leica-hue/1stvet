@@ -90,20 +90,28 @@ class _AppointmentsTableViewState extends State<AppointmentsTableView> {
                       columns: const [
                         DataColumn(label: Text("Date")),
                         DataColumn(label: Text("Pet Name")),
-                        DataColumn(label: Text("Purpose")),
-                        DataColumn(label: Text("Time")),
-                        DataColumn(label: Text("Owner")),
+                        DataColumn(label: Text("Type")),
+                        DataColumn(label: Text("Reason")),
+                        DataColumn(label: Text("Time Slot")),
+                        DataColumn(label: Text("Vet Name")),
+                        DataColumn(label: Text("Specialty")),
+                        DataColumn(label: Text("Cost")),
+                        DataColumn(label: Text("User Name")),
                         DataColumn(label: Text("Status")),
                         DataColumn(label: Text("Actions")),
                       ],
                       rows: filteredAppointments.map((appt) {
                         return DataRow(
                           cells: [
-                            DataCell(Text("${appt.date.toLocal()}".split(' ')[0])),
+                            DataCell(Text("${appt.appointmentDateTime.toLocal()}".split(' ')[0])),
                             DataCell(Text(appt.petName)),
-                            DataCell(Text(appt.purpose)),
-                            DataCell(Text(appt.time)),
-                            DataCell(Text(appt.owner)),
+                            DataCell(Text(appt.appointmentType)),
+                            DataCell(Text(appt.reason)),
+                            DataCell(Text(appt.timeSlot)),
+                            DataCell(Text(appt.vetName)),
+                            DataCell(Text(appt.vetSpecialty)),
+                            DataCell(Text("\$${appt.cost}")),
+                            DataCell(Text(appt.userName)),
                             DataCell(Text(
                               appt.status,
                               style: TextStyle(
@@ -146,10 +154,15 @@ class _AppointmentsTableViewState extends State<AppointmentsTableView> {
   /// Edit Dialog
   void _showEditDialog(BuildContext context, Appointment appt) {
     final petController = TextEditingController(text: appt.petName);
-    final purposeController = TextEditingController(text: appt.purpose);
-    final timeController = TextEditingController(text: appt.time);
-    final ownerController = TextEditingController(text: appt.owner);
+    final reasonController = TextEditingController(text: appt.reason);
+    final timeSlotController = TextEditingController(text: appt.timeSlot);
+    final userNameController = TextEditingController(text: appt.userName);
+    final vetNameController = TextEditingController(text: appt.vetName);
+    final vetSpecialtyController = TextEditingController(text: appt.vetSpecialty);
+
     String status = appt.status;
+    String appointmentType = appt.appointmentType;
+    int cost = appt.cost;
 
     showDialog(
       context: context,
@@ -159,16 +172,37 @@ class _AppointmentsTableViewState extends State<AppointmentsTableView> {
           child: Column(
             children: [
               TextField(controller: petController, decoration: const InputDecoration(labelText: "Pet Name")),
-              TextField(controller: purposeController, decoration: const InputDecoration(labelText: "Purpose")),
-              TextField(controller: timeController, decoration: const InputDecoration(labelText: "Time")),
-              TextField(controller: ownerController, decoration: const InputDecoration(labelText: "Owner")),
+              TextField(controller: reasonController, decoration: const InputDecoration(labelText: "Reason")),
+              TextField(controller: timeSlotController, decoration: const InputDecoration(labelText: "Time Slot")),
+              TextField(controller: userNameController, decoration: const InputDecoration(labelText: "User Name")),
+              TextField(controller: vetNameController, decoration: const InputDecoration(labelText: "Vet Name")),
+              TextField(controller: vetSpecialtyController, decoration: const InputDecoration(labelText: "Vet Specialty")),
+              TextFormField(
+                initialValue: cost.toString(),
+                decoration: const InputDecoration(labelText: "Cost"),
+                keyboardType: TextInputType.number,
+                onChanged: (val) {
+                  cost = int.tryParse(val) ?? 0;
+                },
+              ),
               DropdownButtonFormField<String>(
                 value: status,
+                decoration: const InputDecoration(labelText: "Status"),
                 items: ["Pending", "Confirmed", "Declined", "Completed"]
                     .map((s) => DropdownMenuItem(value: s, child: Text(s)))
                     .toList(),
                 onChanged: (val) {
                   if (val != null) status = val;
+                },
+              ),
+              DropdownButtonFormField<String>(
+                value: appointmentType,
+                decoration: const InputDecoration(labelText: "Appointment Type"),
+                items: ["In-Person", "Virtual"]
+                    .map((s) => DropdownMenuItem(value: s, child: Text(s)))
+                    .toList(),
+                onChanged: (val) {
+                  if (val != null) appointmentType = val;
                 },
               ),
             ],
@@ -180,9 +214,13 @@ class _AppointmentsTableViewState extends State<AppointmentsTableView> {
             onPressed: () {
               setState(() {
                 appt.petName = petController.text;
-                appt.purpose = purposeController.text;
-                appt.time = timeController.text;
-                appt.owner = ownerController.text;
+                appt.reason = reasonController.text;
+                appt.timeSlot = timeSlotController.text;
+                appt.userName = userNameController.text;
+                appt.vetName = vetNameController.text;
+                appt.vetSpecialty = vetSpecialtyController.text;
+                appt.cost = cost;
+                appt.appointmentType = appointmentType;
                 appt.status = status;
               });
               Navigator.pop(ctx);
