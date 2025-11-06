@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'firebase_options.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'dashboard_screen.dart';
@@ -374,8 +375,32 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
               child: Text("Notes: ${appt.vetNotes}",
                   style: const TextStyle(fontStyle: FontStyle.italic)),
             ),
+            // 🎥 Show Join Consultation button for online confirmed appointments
+          if (appt.appointmentType == "Online Consultation" &&
+              appt.status == "confirmed" &&
+              appt.userEmail.isNotEmpty) ...[
+            const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end, // Ensures the Row content aligns to the end (right)
+            children: [
+              ElevatedButton.icon(
+                onPressed: () => _joinOnlineConsultation(appt.userEmail),
+                label: const Text("Join Consultation"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color.fromARGB(255, 157, 235, 159),
+                  padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  textStyle: const TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.bold),
+                ),
+              ),
+            ],
+          ),
+
         ],
-      ),
+        ]      ),
     );
   }
 
@@ -398,6 +423,22 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
       ),
     );
   }
+    void _joinOnlineConsultation(String meetingLink) async {
+      if (meetingLink.startsWith("http")) {
+        Uri url = Uri.parse(meetingLink);
+        if (await canLaunchUrl(url)) {
+          await launchUrl(url, mode: LaunchMode.externalApplication);
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Could not open meeting link.")),
+          );
+        }
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Invalid meeting link.")),
+        );
+      }
+    }
 
   Widget _sidebarItem(IconData icon, String title, {bool selected = false}) {
     return InkWell(
