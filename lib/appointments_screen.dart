@@ -13,6 +13,7 @@ import 'zoom_meeting_screen.dart';
 import 'vet_history_notes_screen.dart';
 import 'analytics_screen.dart';
 
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(
@@ -125,6 +126,10 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
     }
   }
 
+   bool _isSameDate(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
   Widget _tabButton(String label) {
     final isSelected = _selectedFilter == label;
     return Padding(
@@ -191,8 +196,10 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                             .toList();
 
                         final filteredAppointments = appointments.where((appt) {
-                          return _selectedFilter == "all" ||
-                              appt.status == _selectedFilter;
+                          final matchesStatus = _selectedFilter == "all" || appt.status == _selectedFilter;
+                          final matchesDate = _selectedDay == null ||
+                              _isSameDate(appt.appointmentDateTime, _selectedDay!);
+                          return matchesStatus && matchesDate;
                         }).toList();
 
                         final bookedDates =
@@ -251,6 +258,8 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
       ),
     );
   }
+
+  
 
   Widget _appointmentCard(Appointment appt) {
     Color statusColor;

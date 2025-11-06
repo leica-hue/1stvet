@@ -46,8 +46,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
       for (var doc in docs) {
         final data = doc.data();
-        if (data.containsKey('vetId')) {
-          patientSet.add(data['vetId']);
+        if (data.containsKey('userId')) {
+          patientSet.add(data['userId']);
         }
 
         // Count vet ratings
