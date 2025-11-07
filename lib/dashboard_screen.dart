@@ -1,4 +1,4 @@
-import 'dart:async'; // Added for StreamSubscription
+import 'dart:async'; // Keep for StreamSubscription type
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -89,7 +89,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String _specialization = '';
   String _vetStatus = 'Loading...';
   File? _profileImage;
-  bool _isVerified = false;
+  // Removed: bool _isVerified = false; 
   
 @override
 void initState() {
@@ -140,7 +140,7 @@ Future<void> _loadAllData() async {
   // Load user profile from shared prefs
   Future<void> _loadProfile() async {
     final profile = await UserPrefs.loadProfile();
-    final verification = await UserPrefs.loadVerification();
+    await UserPrefs.loadVerification(); // Keep loading it to avoid removing the UserPrefs function, but don't use the result
     if (!mounted) return;
     setState(() {
       _name = profile.name;
@@ -148,7 +148,7 @@ Future<void> _loadAllData() async {
       _email = profile.email;
       _specialization = profile.specialization;
       _profileImage = profile.profileImage;
-      _isVerified = verification.isVerified;
+      // Removed: _isVerified = verification.isVerified;
     });
   }
 
@@ -157,8 +157,6 @@ void _setupRatingListener() {
   final user = FirebaseAuth.instance.currentUser;
   if (user == null || _name.isEmpty) return; // Must wait for _name
 
-  // Cancel existing subscription if any (prevents duplicate streams on hot reload)
-  // Although not strictly necessary here, it's good practice
   if (mounted) {
       _ratingSubscription?.cancel();
   }
@@ -256,8 +254,6 @@ Future<void> _loadAppointments() async {
       completedCount = completed;
       cancelledCount = cancelled;
       
-      // Removed: _ratingCount and _averagerating update here (now handled by listener)
-
       _isLoading = false;
     });
   } catch (e) {
@@ -302,14 +298,8 @@ Future<void> _loadAppointments() async {
         break;
     }
   }
-
-  Future<void> _verifyLicense() async {
-    setState(() => _isVerified = true);
-    await UserPrefs.saveVerification(isVerified: true);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('License verified successfully!')),
-    );
-  }
+  
+  // Removed: Future<void> _verifyLicense() async { ... }
 
   @override
   Widget build(BuildContext context) {
@@ -350,34 +340,34 @@ Future<void> _loadAppointments() async {
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
                 : Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        color: const Color(0xFFBDD9A4),
-                        padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
-                        child: const Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text('Dashboard',
-                                style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
-                          ],
-                        ),
-                      ),
-                      Expanded(
-                        child: SingleChildScrollView(
-                          padding: const EdgeInsets.all(32),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          color: const Color(0xFFBDD9A4),
+                          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
+                          child: const Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              _buildProfileHeader(),
-                              const SizedBox(height: 40),
-                              _buildAppointmentsSection(todayAppointments),
+                              Text('Dashboard',
+                                  style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
                             ],
                           ),
                         ),
-                      ),
-                    ],
-                  ),
+                        Expanded(
+                          child: SingleChildScrollView(
+                            padding: const EdgeInsets.all(32),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _buildProfileHeader(),
+                                const SizedBox(height: 40),
+                                _buildAppointmentsSection(todayAppointments),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
           ),
         ],
       ),
@@ -422,31 +412,9 @@ Future<void> _loadAppointments() async {
                 Text(_location),
                 Text(_specialization, style: const TextStyle(color: Colors.black87)),
                 const SizedBox(height: 6),
-                Row(
-                  children: [
-                    if (_isVerified)
-                      const Row(
-                        children: [
-                          Icon(Icons.verified, size: 16, color: Colors.green),
-                          SizedBox(width: 4),
-                          Text('License Verified'),
-                        ],
-                      )
-                    else
-                      ElevatedButton(
-                        onPressed: _verifyLicense,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFFEAF086),
-                          foregroundColor: Colors.black,
-                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-                        ),
-                        child: const Text('Verify License'),
-                      ),
-                    const SizedBox(width: 16),
-                    Text('Status: $_vetStatus',
-                        style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87)),
-                  ],
-                ),
+                // Removed the License Verification Row content
+                Text('Status: $_vetStatus',
+                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87)),
               ],
             ),
             const Spacer(),

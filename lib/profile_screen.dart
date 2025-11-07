@@ -33,8 +33,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   List<String> specializations = ['Pathology', 'Behaviour', 'Dermatology', 'General'];
 
   File? profileImage;
-  File? idImage;
-  bool isVerified = false;
+  // Removed: File? idImage;
+  // Removed: bool isVerified = false;
 
   @override
   void initState() {
@@ -52,7 +52,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       locationController.text = prefs.getString('location') ?? '';
       clinicController.text = prefs.getString('clinic') ?? '';
       specialization = prefs.getString('specialization') ?? 'Pathology';
-      isVerified = prefs.getBool('isVerified') ?? false;
+      // Removed: isVerified = prefs.getBool('isVerified') ?? false;
 
       final profilePath = prefs.getString('profileImage');
       if (!kIsWeb && profilePath != null) {
@@ -62,13 +62,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
         } catch (_) {}
       }
 
-      final idPath = prefs.getString('idImage');
-      if (!kIsWeb && idPath != null) {
-        try {
-          final file = File(idPath);
-          if (file.existsSync()) idImage = file;
-        } catch (_) {}
-      }
+      // Removed ID image loading logic
+      // final idPath = prefs.getString('idImage');
+      // if (!kIsWeb && idPath != null) {
+      //   try {
+      //     final file = File(idPath);
+      //     if (file.existsSync()) idImage = file;
+      //   } catch (_) {}
+      // }
     });
   }
 
@@ -81,13 +82,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     await prefs.setString('location', locationController.text);
     await prefs.setString('clinic', clinicController.text);
     await prefs.setString('specialization', specialization);
-    await prefs.setBool('isVerified', isVerified);
+    // Removed: await prefs.setBool('isVerified', isVerified);
     if (profileImage != null && !kIsWeb) {
       await prefs.setString('profileImage', profileImage!.path);
     }
-    if (idImage != null && !kIsWeb) {
-      await prefs.setString('idImage', idImage!.path);
-    }
+    // Removed ID image saving logic
+    // if (idImage != null && !kIsWeb) {
+    //   await prefs.setString('idImage', idImage!.path);
+    // }
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -134,40 +136,40 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  // ✅ Upload ID (verification)
-  Future<void> _uploadId() async {
-    final pickedFile = await ImagePicker().pickImage(source: ImageSource.gallery);
-    if (pickedFile != null) {
-      try {
-        if (kIsWeb) {
-          setState(() => isVerified = true);
-        } else {
-          idImage = File(pickedFile.path);
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setBool('isVerified', true);
-          await prefs.setString('idImage', pickedFile.path);
-        }
+  // Removed: _uploadId method entirely
+  // Future<void> _uploadId() async {
+  //   final pickedFile = await ImagePicker().pickImage(source: ImageSource.gallery);
+  //   if (pickedFile != null) {
+  //     try {
+  //       if (kIsWeb) {
+  //         setState(() => isVerified = true);
+  //       } else {
+  //         idImage = File(pickedFile.path);
+  //         final prefs = await SharedPreferences.getInstance();
+  //         await prefs.setBool('isVerified', true);
+  //         await prefs.setString('idImage', pickedFile.path);
+  //       }
 
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text("✅ ID uploaded successfully! Awaiting verification..."),
-              backgroundColor: Color(0xFF728D5A),
-              duration: Duration(seconds: 2),
-            ),
-          );
-        }
+  //       if (mounted) {
+  //         ScaffoldMessenger.of(context).showSnackBar(
+  //           const SnackBar(
+  //             content: Text("✅ ID uploaded successfully! Awaiting verification..."),
+  //             backgroundColor: Color(0xFF728D5A),
+  //             duration: Duration(seconds: 2),
+  //           ),
+  //         );
+  //       }
 
-        setState(() => isVerified = true);
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text("⚠️ Failed to upload ID: $e")),
-          );
-        }
-      }
-    }
-  }
+  //       setState(() => isVerified = true);
+  //     } catch (e) {
+  //       if (mounted) {
+  //         ScaffoldMessenger.of(context).showSnackBar(
+  //           SnackBar(content: Text("⚠️ Failed to upload ID: $e")),
+  //         );
+  //       }
+  //     }
+  //   }
+  // }
 
   // ✅ Navigation helper
   void _navigateTo(Widget screen) {
@@ -386,60 +388,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               ),
                               const SizedBox(width: 40),
 
-                              // Verification + Specialization
+                              // Specialization (Verification section removed)
                               Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  Container(
-                                    width: 200,
-                                    padding: const EdgeInsets.all(18),
-                                    decoration: BoxDecoration(
-                                      borderRadius: BorderRadius.circular(12),
-                                      border: Border.all(color: Colors.grey.shade300),
-                                      color: Colors.white,
-                                    ),
-                                    child: Column(
-                                      children: [
-                                        if (isVerified)
-                                          const Column(
-                                            children: [
-                                              Icon(Icons.verified, size: 50, color: Colors.green),
-                                              SizedBox(height: 10),
-                                              Text(
-                                                "License Verified",
-                                                textAlign: TextAlign.center,
-                                                style: TextStyle(
-                                                  color: Colors.green,
-                                                  fontWeight: FontWeight.bold,
-                                                ),
-                                              ),
-                                            ],
-                                          )
-                                        else
-                                          Column(
-                                            children: [
-                                              ElevatedButton.icon(
-                                                onPressed: _uploadId,
-                                                icon: const Icon(Icons.upload_file),
-                                                label: const Text("Get Verified"),
-                                                style: ElevatedButton.styleFrom(
-                                                  backgroundColor: const Color(0xFFEAF086),
-                                                  foregroundColor: Colors.black,
-                                                  padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-                                                ),
-                                              ),
-                                              const SizedBox(height: 10),
-                                              const Text(
-                                                "Upload valid ID to verify your license.",
-                                                textAlign: TextAlign.center,
-                                                style: TextStyle(fontSize: 12, color: Colors.black54),
-                                              ),
-                                            ],
-                                          ),
-                                      ],
-                                    ),
-                                  ),
-                                  const SizedBox(height: 30),
+                                  // Verification UI removed from here
+                                  // const SizedBox(height: 30), // Removed vertical spacing
+
                                   Container(
                                     width: 200,
                                     padding: const EdgeInsets.all(18),
