@@ -1,6 +1,9 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter_application_1/login_screen.dart';
+import 'package:flutter_application_1/settings_screen.dart';
+import 'package:flutter_application_1/user_prefs.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path_provider/path_provider.dart';
@@ -219,6 +222,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   icon: Icons.feedback,
                   title: "Feedback",
                   onTap: () => _navigateTo(const VetFeedbackScreen()),
+                ),
+                const Spacer(),
+                
+                const SizedBox(height: 12),
+                _sidebarItem(
+                  icon: Icons.settings,
+                  title: "Settings",
+                  onTap: () => _navigateTo(const SettingsScreen()),
+                ),
+                const SizedBox(height: 12),
+                _sidebarItem(
+                  icon: Icons.logout,
+                  title: "Logout",
+                  onTap: () async {
+                    await UserPrefs.clearLoggedIn();
+                    if (!mounted) return;
+                    Navigator.pushAndRemoveUntil(
+                      context,
+                      MaterialPageRoute(builder: (_) => const LoginScreen(registeredEmail: '', registeredPassword: '')),
+                      (route) => false,
+                    );
+                  },
                 ),
               ],
             ),

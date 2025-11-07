@@ -16,8 +16,8 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
 
   int totalPatients = 0;
   int totalAppointments = 0;
-  int totalRatings= 0;
-  double averageVetRating = 0.0;
+  int totalRatings = 0;
+  double averageVetRating = 0.0; // Consistent naming
 
   @override
   void initState() {
@@ -25,45 +25,89 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
     _fetchAnalyticsData();
   }
 
-  void _fetchAnalyticsData() {
+  // ⚠️ TEMPORARY PLACEHOLDER FOR VET NAME ⚠️
+  // You must replace the logic here with a proper way to fetch the vet's name
+  // from their user ID (user!.uid) in a collection like 'vets' or 'users'.
+  Future<String?> _getVetName(String userId) async {
+    // 💡 EXAMPLE: Look up the vet's profile to get their name
+    try {
+      final vetDoc = await _firestore.collection('vets').doc(userId).get();
+      if (vetDoc.exists && vetDoc.data()!.containsKey('name')) {
+        return vetDoc.data()!['name'] as String;
+      }
+    } catch (e) {
+      debugPrint("Error fetching vet name: $e");
+    }
+    // Return null or a default name if not found. Returning a name from your screenshots for now:
+    return "Leica Dacao"; // <-- PLACEHOLDER! REPLACE WITH REAL FETCH LOGIC
+  }
+
+
+  void _fetchAnalyticsData() async {
     if (user == null) return;
 
-    // 🔹 Listen to user_appointments for this vet
+    final userId = user!.uid;
+    // 1. Get the Vet's name first. This is crucial if feedback is filtered by vetName.
+    final currentVetName = await _getVetName(userId);
+    if (currentVetName == null) {
+      debugPrint("Vet Name not found. Cannot fetch ratings.");
+      return;
+    }
+
+
+    // 2. We use a Stream for appointments to update in real-time
     _firestore
         .collection('user_appointments')
-        .where('vetId', isEqualTo: user!.uid)
+        .where('vetId', isEqualTo: userId)
         .snapshots()
-        .listen((snapshot) {
-      final docs = snapshot.docs;
+        .listen((appointmentSnapshot) async {
+      final appointmentDocs = appointmentSnapshot.docs;
 
-      // Total appointments
-      int appointmentCount = docs.length;
-
-      // Unique patients (by pet name or userId)
+      // Calculate Appointment and Patient Counts
+      int appointmentCount = appointmentDocs.length;
       final patientSet = <String>{};
-      double totalRating = 0;
-      int ratingCount = 0;
-
-      for (var doc in docs) {
+      for (var doc in appointmentDocs) {
         final data = doc.data();
         if (data.containsKey('userId')) {
           patientSet.add(data['userId']);
         }
-
-        // Count vet ratings
-        if (data['vetRating'] != null) {
-          totalRating += (data['vetRating'] as num).toDouble();
-          ratingCount++;
-        }
       }
 
-      setState(() {
-        totalAppointments = appointmentCount;
-        totalPatients = patientSet.length;
-        totalRatings = ratingCount;
-        averageVetRating =
-            ratingCount > 0 ? totalRating / ratingCount : 0.0;
-      });
+      // 3. CORRECTED: Fetch Ratings from 'feedback' collection using 'vetName'
+      try {
+        final feedbackSnapshot = await _firestore
+            .collection('feedback')
+            // Querying using 'vetName' as seen in your screenshot
+            .where('vetName', isEqualTo: currentVetName) 
+            .get();
+
+        double totalRating = 0; 
+        int ratingCount = 0;
+
+        for (var doc in feedbackSnapshot.docs) {
+          final data = doc.data();
+          // The field name is 'rating' as seen in your screenshot
+          if (data.containsKey('rating') && data['rating'] is num) {
+            totalRating += (data['rating'] as num).toDouble();
+            ratingCount++;
+          }
+        }
+
+        setState(() {
+          totalAppointments = appointmentCount;
+          totalPatients = patientSet.length;
+          // Updated data from 'feedback' collection
+          totalRatings = ratingCount;
+          averageVetRating = 
+              ratingCount > 0 ? totalRating / ratingCount : 0.0;
+        });
+      } catch (e) {
+        debugPrint("Error fetching feedback data: $e");
+        setState(() {
+          totalRatings = 0;
+          averageVetRating = 0.0;
+        });
+      }
     });
   }
 
@@ -113,7 +157,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                           Icons.star, Colors.orange),
                       _analyticsCard(
                         "Avg Rating",
-                        "${averageVetRating.toStringAsFixed(1)} ⭐",
+                        "${averageVetRating.toStringAsFixed(1)} ⭐", 
                         Icons.star,
                         Colors.amber,
                       ),

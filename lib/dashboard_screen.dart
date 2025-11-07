@@ -13,6 +13,7 @@ import 'settings_screen.dart' hide LoginScreen;
 import 'patients_list_screen.dart';
 import 'user_prefs.dart';
 
+// --- Appointment Class (No Changes Needed) ---
 class Appointment {
   final String petName;
   final String timeSlot;
@@ -32,7 +33,6 @@ class Appointment {
     required this.id,
   });
 
-  // CRITICAL FIX: Get the ID from the document object, not the data map.
   factory Appointment.fromFirestore(DocumentSnapshot<Map<String, dynamic>> doc) {
     final data = doc.data()!;
     return Appointment(
@@ -40,12 +40,10 @@ class Appointment {
       timeSlot: data['timeSlot'] ?? '',
       userName: data['userName'] ?? '',
       userId: data['userId'] ?? '',
-      // FIX: Get document ID from doc.id
-      id: doc.id, 
+      id: doc.id,
       status: data['status'] ?? 'Pending',
       appointmentDateTime: (data['appointmentDateTime'] is Timestamp)
           ? (data['appointmentDateTime'] as Timestamp).toDate()
-          // Fallback parsing for non-Timestamp/ISO date strings
           : DateTime.tryParse(data['appointmentDateTime'].toString()) ?? DateTime.now(),
     );
   }
@@ -56,8 +54,7 @@ class Appointment {
     'userName': userName,
     'userId': userId,
     'status': status,
-    // Store as Timestamp in Firestore if you prefer, but Iso8601String is fine for JSON.
-    'appointmentDateTime': appointmentDateTime, 
+    'appointmentDateTime': appointmentDateTime,
   };
 }
 
@@ -72,12 +69,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final user = FirebaseAuth.instance.currentUser;
 
-  // Added StreamSubscription for real-time rating updates
-  late StreamSubscription _ratingSubscription;
+  StreamSubscription? _ratingSubscription;
 
-  double _averagevetRating = 0.0;
-  int _vetRatingCount = 0;
-  // Removed unused _selectedRating
+  double _averagerating = 0.0;
+  int _ratingCount = 0;
 
   List<Appointment> _appointments = [];
   bool _isLoading = true;
@@ -95,20 +90,29 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String _vetStatus = 'Loading...';
   File? _profileImage;
   bool _isVerified = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadProfile();
-    _loadVetStatus();
-    _setupRatingListener(); // Uses stream for real-time updates
-    _loadAppointments();
-  }
   
-  // Dispose the stream listener to prevent memory leaks
+@override
+void initState() {
+  super.initState();
+  _loadAllData();
+}
+
+// Ensure profile loads first so _name is available for the listener
+Future<void> _loadAllData() async {
+    // 1. Wait until _name is loaded (via setState inside _loadProfile)
+    await _loadProfile();
+    
+    // 2. Setup the real-time listener using the loaded _name
+    _setupRatingListener();
+    
+    // 3. Load other data concurrently
+    _loadVetStatus();
+    _loadAppointments();
+}
+  
   @override
   void dispose() {
-    _ratingSubscription.cancel();
+    _ratingSubscription?.cancel();
     super.dispose();
   }
 
@@ -148,14 +152,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
     });
   }
 
-  // Setup Firestore ratings listener (Replaces _loadVetRating for real-time)
+  // Setup Firestore ratings listener (Handles real-time updates)
 void _setupRatingListener() {
   final user = FirebaseAuth.instance.currentUser;
-  if (user == null) return;
+  if (user == null || _name.isEmpty) return; // Must wait for _name
+
+  // Cancel existing subscription if any (prevents duplicate streams on hot reload)
+  // Although not strictly necessary here, it's good practice
+  if (mounted) {
+      _ratingSubscription?.cancel();
+  }
 
   _ratingSubscription = _firestore
-      .collection('user_appointments')
-      .where('vetId', isEqualTo: user.uid)
+      .collection('feedback')
+      .where('vetName', isEqualTo: _name) // Filter is based on _name
       .snapshots()
       .listen((snapshot) {
     if (!mounted) return;
@@ -165,23 +175,22 @@ void _setupRatingListener() {
 
     for (var doc in snapshot.docs) {
       final data = doc.data();
-      if (data['vetRating'] != null) {
-        total += (data['vetRating'] as num).toDouble();
+      if (data['rating'] != null) {
+        total += (data['rating'] as num).toDouble();
         count++;
       }
     }
 
     setState(() {
-      _vetRatingCount = count;
-      _averagevetRating = count > 0 ? total / count : 0.0;
+      _ratingCount = count;
+      _averagerating = count > 0 ? total / count : 0.0;
     });
   }, onError: (e) {
     debugPrint('Error listening to ratings: $e');
   });
 }
 
-  // Load appointments
-// 🔹 Get all appointments of this vet and calculate summary + ratings
+// 🔹 Load appointments and calculate STATUS SUMMARY (NO RATING CALCULATION HERE)
 Future<void> _loadAppointments() async {
   try {
     setState(() => _isLoading = true);
@@ -213,9 +222,6 @@ Future<void> _loadAppointments() async {
     int completed = 0;
     int cancelled = 0;
 
-    double totalRating = 0;
-    int ratingCount = 0;
-
     for (var doc in docs) {
       final data = doc.data();
       final status = data['status']?.toString().toLowerCase() ?? '';
@@ -237,14 +243,8 @@ Future<void> _loadAppointments() async {
           cancelled++;
           break;
       }
-
-      // ✅ Calculate ratings (if vetRating exists)
-      if (data['vetRating'] != null) {
-        totalRating += (data['vetRating'] as num).toDouble();
-        ratingCount++;
-      }
     }
-
+    
     if (!mounted) return;
 
     setState(() {
@@ -255,9 +255,8 @@ Future<void> _loadAppointments() async {
       declinedCount = declined;
       completedCount = completed;
       cancelledCount = cancelled;
-
-      _vetRatingCount = ratingCount;
-      _averagevetRating = ratingCount > 0 ? totalRating / ratingCount : 0.0;
+      
+      // Removed: _ratingCount and _averagerating update here (now handled by listener)
 
       _isLoading = false;
     });
@@ -267,7 +266,6 @@ Future<void> _loadAppointments() async {
     setState(() => _isLoading = false);
   }
 }
-
 
   Future<void> _handleSidebarTap(String label) async {
     switch (label) {
@@ -504,10 +502,6 @@ Future<void> _loadAppointments() async {
             ),
             const SizedBox(width: 24),
             Expanded(flex: 2, child: _buildRatingAndSummaryBox()),
-            // The check below is redundant as _buildRatingAndSummaryBox() will handle 0 count
-            // if (_ratingCount == 0)
-            //   const Text('No ratings yet', style: TextStyle(color: Colors.grey)),
-
           ],
         )
       ],
@@ -599,7 +593,7 @@ Widget _buildRatingAndSummaryBox() {
         child: Column(
           children: [
             Text(
-              _averagevetRating.toStringAsFixed(1),
+              _averagerating.toStringAsFixed(1),
               style: const TextStyle(fontSize: 42, fontWeight: FontWeight.bold),
             ),
             Row(
@@ -608,7 +602,7 @@ Widget _buildRatingAndSummaryBox() {
                 const Icon(Icons.star, color: Colors.green, size: 30),
                 const SizedBox(width: 4),
                 Text(
-                  'Overall Rating',
+                  'Overall Rating', // Display count for verification
                   style: TextStyle(color: Colors.grey.shade700),
                 ),
               ],

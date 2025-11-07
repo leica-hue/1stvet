@@ -2,6 +2,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter_application_1/login_screen.dart';
+import 'package:flutter_application_1/settings_screen.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'firebase_options.dart';
 import 'package:table_calendar/table_calendar.dart';
@@ -49,7 +51,7 @@ class Appointment {
   DateTime? createdAt;
   String vetName;
   String vetSpecialty;
-  int vetRating;
+  int rating; // Retaining this for consistency, though runtime data might override
   int cost;
   String appointmentType;
   String userEmail;
@@ -68,7 +70,7 @@ class Appointment {
     this.createdAt,
     this.vetName = '',
     this.vetSpecialty = '',
-    this.vetRating = 0,
+    this.rating = 0,
     this.cost = 0,
     this.appointmentType = '',
     this.userEmail = '',
@@ -94,7 +96,7 @@ class Appointment {
       createdAt: createdAtTs?.toDate(),
       vetName: data['vetName'] ?? 'N/A',
       vetSpecialty: data['vetSpecialty'] ?? 'N/A',
-      vetRating: (data['vetRating'] as num?)?.toInt() ?? 0,
+      rating: (data['rating'] as num?)?.toInt() ?? 0,
       cost: (data['cost'] as num?)?.toInt() ?? 0,
       appointmentType: data['appointmentType'] ?? 'N/A',
       userEmail: data['userEmail'] ?? '',
@@ -126,8 +128,31 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
       return const Stream.empty();
     }
   }
+  
+  // New method to fetch rating from the 'feedback' collection
+  Future<int?> _getAppointmentRating(String appointmentId) async {
+    try {
+      final feedbackDoc = await FirebaseFirestore.instance
+          .collection('feedback') // Assuming a 'feedback' collection
+          .where('appointmentId', isEqualTo: appointmentId)
+          .limit(1)
+          .get();
 
-   bool _isSameDate(DateTime a, DateTime b) {
+      if (feedbackDoc.docs.isNotEmpty) {
+        final data = feedbackDoc.docs.first.data();
+        // Assuming the rating field is named 'rating' and is an integer
+        final rating = (data['rating'] as num?)?.toInt();
+        return rating;
+      }
+      return null;
+    } catch (e) {
+      debugPrint("Error fetching rating: $e");
+      return null;
+    }
+  }
+
+
+    bool _isSameDate(DateTime a, DateTime b) {
     return a.year == b.year && a.month == b.month && a.day == b.day;
   }
 
@@ -227,19 +252,19 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                                   Expanded(
                                     child: filteredAppointments.isEmpty
                                         ? const Center(
-                                            child: Text(
-                                              "No appointments found.",
-                                              style: TextStyle(
-                                                  fontSize: 16,
-                                                  color: Colors.grey),
-                                            ),
-                                          )
+                                              child: Text(
+                                                "No appointments found.",
+                                                style: TextStyle(
+                                                    fontSize: 16,
+                                                    color: Colors.grey),
+                                              ),
+                                            )
                                         : ListView(
-                                            children: filteredAppointments
-                                                .map((appt) =>
-                                                    _appointmentCard(appt))
-                                                .toList(),
-                                          ),
+                                              children: filteredAppointments
+                                                  .map((appt) =>
+                                                      _appointmentCard(appt))
+                                                  .toList(),
+                                            ),
                                   ),
                                   const SizedBox(width: 20),
                                   _buildCalendarSection(bookedDates),
@@ -280,6 +305,9 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
       default:
         statusColor = Colors.orange;
     }
+
+    // Determine whether to fetch the rating
+    final shouldFetchRating = appt.status == "completed";
 
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
@@ -365,8 +393,32 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
               Text("${appt.vetName} (${appt.vetSpecialty})",
                   style: const TextStyle(fontStyle: FontStyle.italic)),
               const Spacer(),
-              const Icon(Icons.star, size: 16, color: Colors.amber),
-              Text(appt.vetRating.toString()),
+              // 👇 RATING DISPLAY
+              if (shouldFetchRating)
+                FutureBuilder<int?>(
+                  future: _getAppointmentRating(appt.id),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const SizedBox(
+                          width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2));
+                    }
+                    final rating = snapshot.data ?? 0;
+                    if (rating > 0) {
+                      return Row(
+                        children: [
+                          const Icon(Icons.star, size: 16, color: Colors.amber),
+                          Text(rating.toString()),
+                        ],
+                      );
+                    } else if (snapshot.hasError) {
+                      return const Text("Rating Error");
+                    }
+                    // Show N/A if no rating found
+                    return const Text("Rating: N/A");
+                  },
+                )
+              else 
+                const Text("Rating: N/A"), // Display N/A for non-completed appointments
             ],
           ),
           if (appt.vetNotes.isNotEmpty)
@@ -380,28 +432,30 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
               appt.status == "confirmed" &&
               appt.userEmail.isNotEmpty) ...[
             const SizedBox(height: 10),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end, // Ensures the Row content aligns to the end (right)
-            children: [
-              ElevatedButton.icon(
-                onPressed: () => _joinOnlineConsultation(appt.userEmail),
-                label: const Text("Join Consultation"),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color.fromARGB(255, 157, 235, 159),
-                  padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end, // Ensures the Row content aligns to the end (right)
+              children: [
+                ElevatedButton.icon(
+                  onPressed: () => _joinOnlineConsultation(appt.userEmail),
+                  icon: const Icon(Icons.videocam, size: 18),
+                  label: const Text("Join Consultation"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color.fromARGB(255, 157, 235, 159),
+                    padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    textStyle: const TextStyle(
+                        fontSize: 13, fontWeight: FontWeight.bold),
                   ),
-                  textStyle: const TextStyle(
-                      fontSize: 13, fontWeight: FontWeight.bold),
                 ),
-              ),
-            ],
-          ),
+              ],
+            ),
 
-        ],
-        ]      ),
-    );
+          ],
+        ]    
+        ),
+      );
   }
 
   Widget _buildSidebar() {
@@ -411,36 +465,53 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
       child: Column(
         children: [
           const SizedBox(height: 30),
-          Image.asset('assets/furever2.png', width: 140),
+          Image.asset('assets/furever2.png', width: 140), // 
           const SizedBox(height: 40),
-          _sidebarItem(Icons.person_outline, "Profile"),
-          _sidebarItem(Icons.dashboard, "Dashboard"),
-          _sidebarItem(Icons.event_note, "Appointments", selected: true),
-          _sidebarItem(Icons.analytics, "Analytics"),
-          _sidebarItem(Icons.pets, "Patients"),
-          _sidebarItem(Icons.feedback_outlined, "Feedback"),
+          _buildSidebarItem(Icons.person_outline, "Profile"),
+          _buildSidebarItem(Icons.dashboard, "Dashboard"),
+          _buildSidebarItem(Icons.event_note, "Appointments", selected: true),
+          _buildSidebarItem(Icons.analytics, "Analytics"),
+          _buildSidebarItem(Icons.pets, "Patients"),
+          _buildSidebarItem(Icons.feedback_outlined, "Feedback"),
+          const Spacer(),
+          _buildSidebarItem(Icons.settings, "Settings"),
+          _buildSidebarItem(Icons.logout, "Logout"),
         ],
       ),
     );
   }
-    void _joinOnlineConsultation(String meetingLink) async {
+    void _joinOnlineConsultation(String userEmail) async {
+      // Assuming userEmail is the meeting link for simplicity, 
+      // as the original code was using it as the link parameter.
+      String meetingLink = userEmail;
+      
+      // NOTE: This logic assumes the 'userEmail' is actually a valid URL/Meeting Link
+      // as used in the original 'if (appt.userEmail.isNotEmpty)' and 
+      // 'onPressed: () => _joinOnlineConsultation(appt.userEmail)'.
+      // If the email is NOT the meeting link, the logic here will be flawed, 
+      // and you will need to update the Appointment model and Firestore to store the actual meeting link.
+
       if (meetingLink.startsWith("http")) {
         Uri url = Uri.parse(meetingLink);
         if (await canLaunchUrl(url)) {
           await launchUrl(url, mode: LaunchMode.externalApplication);
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Could not open meeting link.")),
-          );
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text("Could not open meeting link.")),
+            );
+          }
         }
       } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Invalid meeting link.")),
-        );
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Invalid meeting link.")),
+          );
+        }
       }
     }
 
-  Widget _sidebarItem(IconData icon, String title, {bool selected = false}) {
+  Widget _buildSidebarItem(IconData icon, String title, {bool selected = false}) {
     return InkWell(
       onTap: () {
         if (title == "Dashboard") {
@@ -467,6 +538,17 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(builder: (_) => const VetFeedbackScreen()),
+          );
+        } else if (title == "Settings") {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const SettingsScreen()),
+          );
+        } else if (title == "Logout") {
+          FirebaseAuth.instance.signOut();
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (_) => const LoginScreen(registeredEmail: '', registeredPassword: '')),
           );
         }
       },
