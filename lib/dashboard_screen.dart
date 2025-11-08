@@ -11,7 +11,7 @@ import 'profile_screen.dart';
 import 'login_screen.dart';
 import 'settings_screen.dart' hide LoginScreen;
 import 'patients_list_screen.dart';
-import 'user_prefs.dart';
+import 'user_prefs.dart'; // Assuming this file contains the UserPrefs.loadProfile logic
 
 // --- Appointment Class (No Changes Needed) ---
 class Appointment {
@@ -83,194 +83,257 @@ class _DashboardScreenState extends State<DashboardScreen> {
   int completedCount = 0;
   int cancelledCount = 0;
 
+  // Profile data
   String _name = '';
-  String _location = '';
+  String _location = ''; // Will be loaded from Firestore
   String _email = '';
-  String _specialization = '';
+  String _specialization = ''; // Will be loaded from Firestore
   String _vetStatus = 'Loading...';
   File? _profileImage;
-  // Removed: bool _isVerified = false; 
-  
-@override
-void initState() {
-  super.initState();
-  _loadAllData();
-}
 
-// Ensure profile loads first so _name is available for the listener
-Future<void> _loadAllData() async {
-    // 1. Wait until _name is loaded (via setState inside _loadProfile)
-    await _loadProfile();
-    
-    // 2. Setup the real-time listener using the loaded _name
-    _setupRatingListener();
-    
-    // 3. Load other data concurrently
-    _loadVetStatus();
-    _loadAppointments();
-}
-  
+  @override
+  void initState() {
+    super.initState();
+    _loadAllData();
+  }
+
   @override
   void dispose() {
     _ratingSubscription?.cancel();
     super.dispose();
   }
 
-  // Load vet status from Firestore
+// --- Loading Functions ---
+
+// 🎯 PRIMARY LOADING FUNCTION: Ensures all data loads completely
+  Future<void> _loadAllData() async {
+    if (user == null) {
+      if (mounted) setState(() => _isLoading = false);
+      return;
+    }
+    
+    // 1. Load basic profile (name, image) AND specialization/location from Firestore
+    await _loadProfileAndDetails();
+
+    // 2. Setup the real-time listener (relies on _name from step 1)
+    _setupRatingListener();
+
+    // 3. Load vet status (relies on user!.uid)
+    await _loadVetStatus();
+
+    // 4. Load appointments (relies on user!.uid)
+    await _loadAppointments();
+
+    // Final step: Turn off loading indicator
+    if (mounted) setState(() => _isLoading = false);
+  }
+
+// Load vet status from Firestore
   Future<void> _loadVetStatus() async {
     if (user == null) return;
 
-    final doc = await _firestore.collection('vets').doc(user!.uid).get();
-    if (doc.exists) {
-      final data = doc.data();
-      final inactive = data?['inactive'] ?? false;
-      final status = data?['status'] ?? 'Available';
-      if (!mounted) return;
-      setState(() {
-        _vetStatus = inactive ? 'Unavailable (Deactivated)' : status;
-      });
-    } else {
-      if (!mounted) return;
-      setState(() {
-        _vetStatus = 'Status not found';
-      });
+    try {
+      final doc = await _firestore.collection('vets').doc(user!.uid).get();
+      if (doc.exists) {
+        final data = doc.data();
+        final inactive = data?['inactive'] ?? false;
+        final status = data?['status'] ?? 'Available';
+        if (!mounted) return;
+        setState(() {
+          _vetStatus = inactive ? 'Unavailable (Deactivated)' : status;
+        });
+      } else {
+        if (!mounted) return;
+        setState(() {
+          _vetStatus = 'Status not found';
+        });
+      }
+    } catch (e) {
+      debugPrint('Error loading vet status: $e');
     }
   }
 
-  // Load user profile from shared prefs
-  Future<void> _loadProfile() async {
+  // Load user profile from shared prefs AND specialization/location from Firestore (MODIFIED)
+// Load user profile from shared prefs AND specialization/location from Firestore (MODIFIED)
+  Future<void> _loadProfileAndDetails() async {
+    // 1. Load local data (Name, Email, Profile Image)
     final profile = await UserPrefs.loadProfile();
-    await UserPrefs.loadVerification(); // Keep loading it to avoid removing the UserPrefs function, but don't use the result
+    await UserPrefs.loadVerification();
+
+    // Start with local/default values
+    String newName = profile.name;
+    String newEmail = profile.email;
+    File? newProfileImage = profile.profileImage;
+    // Initialize these with generic defaults if UserPrefs happens to contain placeholders
+    String newSpecialization = 'Specialization not set';
+    String newLocation = 'Location not set';
+
+    // 2. Load Specialization, Location from Firestore using vetId
+    if (user != null) {
+      try {
+        final doc = await _firestore.collection('vets').doc(user!.uid).get();
+        if (doc.exists) {
+          final data = doc.data();
+
+          // Get the values from Firestore (or empty string if not present/null)
+          final firestoreSpecialization = data?['specialization']?.toString().trim() ?? '';
+          final firestoreLocation = data?['location']?.toString().trim() ?? '';
+
+          // ✅ Set specialization and location from Firestore. 
+          // If the Firestore value is an empty string, it will be handled by the logic below.
+          if (firestoreSpecialization.isNotEmpty) {
+            newSpecialization = firestoreSpecialization; // Use valid Firestore value
+          }
+          if (firestoreLocation.isNotEmpty) {
+            newLocation = firestoreLocation; // Use valid Firestore value
+          }
+        }
+      } catch (e) {
+        debugPrint('Error loading specialization/location from Firestore: $e');
+      }
+    }
+
     if (!mounted) return;
     setState(() {
-      _name = profile.name;
-      _location = profile.location;
-      _email = profile.email;
-      _specialization = profile.specialization;
-      _profileImage = profile.profileImage;
-      // Removed: _isVerified = verification.isVerified;
+      _name = newName;
+      _email = newEmail;
+      _profileImage = newProfileImage;
+
+      // Apply the prioritized values
+      _specialization = newSpecialization;
+      _location = newLocation;
+
+      // Ensure the displayed location and specialization are placeholders if empty.
+      // NOTE: The previous logic in the build method for display used ternary operators
+      // but explicitly setting the state variable here makes the intent clearer and
+      // more robust for display throughout the widget.
+      if (_location.isEmpty || _location == 'Location not set') {
+          _location = 'Location not set';
+      }
+       if (_specialization.isEmpty || _specialization == 'Specialization not set') {
+          _specialization = 'Specialization not set';
+      }
     });
   }
 
   // Setup Firestore ratings listener (Handles real-time updates)
-void _setupRatingListener() {
-  final user = FirebaseAuth.instance.currentUser;
-  if (user == null || _name.isEmpty) return; // Must wait for _name
-
-  if (mounted) {
-      _ratingSubscription?.cancel();
-  }
-
-  _ratingSubscription = _firestore
-      .collection('feedback')
-      .where('vetName', isEqualTo: _name) // Filter is based on _name
-      .snapshots()
-      .listen((snapshot) {
-    if (!mounted) return;
-
-    double total = 0;
-    int count = 0;
-
-    for (var doc in snapshot.docs) {
-      final data = doc.data();
-      if (data['rating'] != null) {
-        total += (data['rating'] as num).toDouble();
-        count++;
-      }
-    }
-
-    setState(() {
-      _ratingCount = count;
-      _averagerating = count > 0 ? total / count : 0.0;
-    });
-  }, onError: (e) {
-    debugPrint('Error listening to ratings: $e');
-  });
-}
-
-// 🔹 Load appointments and calculate STATUS SUMMARY (NO RATING CALCULATION HERE)
-Future<void> _loadAppointments() async {
-  try {
-    setState(() => _isLoading = true);
-
+  void _setupRatingListener() {
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null) {
-      debugPrint('No logged-in vet found.');
-      setState(() => _isLoading = false);
-      return;
+    if (user == null || _name.isEmpty) return; // Must wait for _name
+
+    if (mounted) {
+      _ratingSubscription?.cancel();
     }
 
-    // ✅ Fetch all appointments for this vet
-    final snapshot = await _firestore
-        .collection('user_appointments')
-        .where('vetId', isEqualTo: user.uid) // match by vet ID
-        .get();
+    // Since the rating data seems to use 'vetName', we stick to that filter here
+    _ratingSubscription = _firestore
+        .collection('feedback')
+        .where('vetName', isEqualTo: _name) // Filter is based on _name
+        .snapshots()
+        .listen((snapshot) {
+      if (!mounted) return;
 
-    final docs = snapshot.docs;
+      double total = 0;
+      int count = 0;
 
-    // ✅ Map the appointments into objects
-    final List<Appointment> loadedAppointments = docs.isNotEmpty
-        ? docs.map((doc) => Appointment.fromFirestore(doc)).toList()
-        : [];
-
-    // ✅ Calculate counts for statuses
-    int confirmed = 0;
-    int pending = 0;
-    int declined = 0;
-    int completed = 0;
-    int cancelled = 0;
-
-    for (var doc in docs) {
-      final data = doc.data();
-      final status = data['status']?.toString().toLowerCase() ?? '';
-
-      switch (status) {
-        case 'confirmed':
-          confirmed++;
-          break;
-        case 'pending':
-          pending++;
-          break;
-        case 'declined':
-          declined++;
-          break;
-        case 'completed':
-          completed++;
-          break;
-        case 'cancelled':
-          cancelled++;
-          break;
+      for (var doc in snapshot.docs) {
+        final data = doc.data();
+        // Ensure rating is treated as a number
+        if (data.containsKey('rating') && data['rating'] is num) {
+          total += (data['rating'] as num).toDouble();
+          count++;
+        }
       }
-    }
-    
-    if (!mounted) return;
 
-    setState(() {
-      _appointments = loadedAppointments;
-
-      confirmedCount = confirmed;
-      pendingCount = pending;
-      declinedCount = declined;
-      completedCount = completed;
-      cancelledCount = cancelled;
-      
-      _isLoading = false;
+      setState(() {
+        _ratingCount = count;
+        _averagerating = count > 0 ? total / count : 0.0;
+      });
+    }, onError: (e) {
+      debugPrint('Error listening to ratings: $e');
     });
-  } catch (e) {
-    debugPrint('Error loading appointments: $e');
-    if (!mounted) return;
-    setState(() => _isLoading = false);
   }
-}
+
+// 🔹 Load appointments and calculate STATUS SUMMARY
+  Future<void> _loadAppointments() async {
+    try {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user == null) {
+        debugPrint('No logged-in vet found.');
+        if (mounted) setState(() => _isLoading = false);
+        return;
+      }
+
+      // ✅ Fetch all appointments for this vet using UID
+      final snapshot = await _firestore
+          .collection('user_appointments')
+          .where('vetId', isEqualTo: user.uid) // match by vet ID
+          .get();
+
+      final docs = snapshot.docs;
+
+      // ✅ Map the appointments into objects
+      final List<Appointment> loadedAppointments = docs.isNotEmpty
+          ? docs.map((doc) => Appointment.fromFirestore(doc)).toList()
+          : [];
+
+      // ✅ Calculate counts for statuses
+      int confirmed = 0;
+      int pending = 0;
+      int declined = 0;
+      int completed = 0;
+      int cancelled = 0;
+
+      for (var doc in docs) {
+        final data = doc.data();
+        final status = data['status']?.toString().toLowerCase() ?? '';
+
+        switch (status) {
+          case 'confirmed':
+            confirmed++;
+            break;
+          case 'pending':
+            pending++;
+            break;
+          case 'declined':
+            declined++;
+            break;
+          case 'completed':
+            completed++;
+            break;
+          case 'cancelled':
+            cancelled++;
+            break;
+        }
+      }
+
+      if (!mounted) return;
+
+      setState(() {
+        _appointments = loadedAppointments;
+
+        confirmedCount = confirmed;
+        pendingCount = pending;
+        declinedCount = declined;
+        completedCount = completed;
+        cancelledCount = cancelled;
+        
+        // Note: _isLoading is set to false in _loadAllData
+      });
+    } catch (e) {
+      debugPrint('Error loading appointments: $e');
+      // If error occurs, let _loadAllData handle setting _isLoading to false
+    }
+  }
 
   Future<void> _handleSidebarTap(String label) async {
     switch (label) {
       case 'Profile':
         await Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen()));
-        await _loadProfile();
+        // Reload all data after returning from profile
+        await _loadAllData(); 
         break;
       case 'Appointments':
-        // Ensure AppointmentsPage can handle null if used from dashboard
         await Navigator.push(context, MaterialPageRoute(builder: (_) => AppointmentsPage(appointmentDoc: null)));
         await _loadAppointments();
         break;
@@ -288,6 +351,7 @@ Future<void> _loadAppointments() async {
         await Navigator.push(context, MaterialPageRoute(builder: (_) => const PatientHistoryScreen()));
         break;
       case 'Log out':
+        await FirebaseAuth.instance.signOut();
         await UserPrefs.clearLoggedIn();
         if (!mounted) return;
         Navigator.pushAndRemoveUntil(
@@ -298,13 +362,12 @@ Future<void> _loadAppointments() async {
         break;
     }
   }
-  
-  // Removed: Future<void> _verifyLicense() async { ... }
 
   @override
   Widget build(BuildContext context) {
     final today = DateTime.now();
     final todayAppointments = _appointments.where((appt) =>
+        appt.status.toLowerCase() != 'completed' &&
         appt.appointmentDateTime.year == today.year &&
         appt.appointmentDateTime.month == today.month &&
         appt.appointmentDateTime.day == today.day).toList();
@@ -337,9 +400,11 @@ Future<void> _loadAppointments() async {
 
           // Main content
           Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : Column(
+            child: Container(
+              color: const Color(0xFFF8F9F5), // Light background color for the main area
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator(color: Color(0xFF728D5A)))
+                  : Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Container(
@@ -368,6 +433,7 @@ Future<void> _loadAppointments() async {
                         ),
                       ],
                     ),
+            ),
           ),
         ],
       ),
@@ -399,6 +465,7 @@ Future<void> _loadAppointments() async {
             CircleAvatar(
               radius: 32,
               backgroundColor: Colors.grey.shade300,
+              // Use FileImage if _profileImage is not null
               backgroundImage: _profileImage != null ? FileImage(_profileImage!) : null,
               child: _profileImage == null
                   ? const Icon(Icons.person, size: 40, color: Colors.white)
@@ -408,11 +475,10 @@ Future<void> _loadAppointments() async {
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(_name, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                Text(_location),
-                Text(_specialization, style: const TextStyle(color: Colors.black87)),
+                Text(_name.isNotEmpty ? _name : 'Vet Name', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                Text(_location.isNotEmpty ? _location : 'Location not set'),
+                Text(_specialization.isNotEmpty ? _specialization : 'Specialization not set', style: const TextStyle(color: Colors.black87)),
                 const SizedBox(height: 6),
-                // Removed the License Verification Row content
                 Text('Status: $_vetStatus',
                     style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87)),
               ],
@@ -425,7 +491,8 @@ Future<void> _loadAppointments() async {
               ),
               onPressed: () async {
                 await Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen()));
-                await _loadProfile();
+                // Reload all data to catch profile changes
+                await _loadAllData();
               },
               child: const Text('Edit Profile'),
             ),
@@ -476,20 +543,21 @@ Future<void> _loadAppointments() async {
     );
   }
 
+
   Widget _appointmentCard(Appointment appt) {
     Color statusColor;
-    switch (appt.status) {
-      case "Confirmed":
+    switch (appt.status.toLowerCase()) {
+      case "confirmed":
         statusColor = Colors.green;
         break;
-      case "Declined":
+      case "declined":
         statusColor = Colors.red;
         break;
-      case "Completed":
+      case "completed":
         statusColor = Colors.blue;
         break;
-      case "Cancelled":
-        statusColor = Colors.orange;
+      case "cancelled":
+        statusColor = const Color.fromARGB(255, 243, 34, 198);
         break;
       default:
         statusColor = Colors.yellow.shade700;
@@ -546,73 +614,75 @@ Future<void> _loadAppointments() async {
     );
   }
 
-Widget _buildRatingAndSummaryBox() {
-  return Column(
-    crossAxisAlignment: CrossAxisAlignment.center,
-    children: [
-      // Overall Rating Box
-      Container(
-        width: 300, // Fixed width
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          border: Border.all(color: Colors.grey.shade300),
-          borderRadius: BorderRadius.circular(12),
+  Widget _buildRatingAndSummaryBox() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        // Overall Rating Box
+        Container(
+          width: double.infinity, 
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            border: Border.all(color: Colors.grey.shade300),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            children: [
+              Text(
+                _averagerating.toStringAsFixed(1),
+                style: const TextStyle(fontSize: 42, fontWeight: FontWeight.bold),
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.star, color: Color(0xFF728D5A), size: 30),
+                  const SizedBox(width: 4),
+                  Text(
+                    'Overall Rating', // Displays the current review count
+                    style: TextStyle(color: Colors.grey.shade700),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
-        child: Column(
-          children: [
-            Text(
-              _averagerating.toStringAsFixed(1),
-              style: const TextStyle(fontSize: 42, fontWeight: FontWeight.bold),
-            ),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.star, color: Colors.green, size: 30),
-                const SizedBox(width: 4),
-                Text(
-                  'Overall Rating', // Display count for verification
-                  style: TextStyle(color: Colors.grey.shade700),
-                ),
-              ],
-            ),
-          ],
+        const SizedBox(height: 20),
+        // Appointment Summary Box
+        Container(
+          width: double.infinity, // Use double.infinity for responsive width
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            border: Border.all(color: Colors.grey.shade300),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Appointment Summary (Total: ${confirmedCount + pendingCount + declinedCount + completedCount + cancelledCount})',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 16,
+                runSpacing: 12,
+                children: [
+                  _statusCount('Pending', pendingCount, color: Colors.orange),
+                  _statusCount('Confirmed', confirmedCount, color: Colors.green),
+                  _statusCount('Declined', declinedCount, color: Colors.red),
+                  _statusCount('Completed', completedCount, color: Colors.blue),
+                  _statusCount('Cancelled', cancelledCount,
+                      color: const Color.fromARGB(255, 247, 0, 255)),
+                ],
+              ),
+            ],
+          ),
         ),
-      ),
-      const SizedBox(height: 20),
-      // Appointment Summary Box
-      Container(
-        width: 430, // Fixed width
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          border: Border.all(color: Colors.grey.shade300),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Appointment Summary (Total: ${confirmedCount + pendingCount + declinedCount + completedCount + cancelledCount})',
-              style: const TextStyle(fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 16,
-              runSpacing: 12,
-              children: [
-                _statusCount('pending', pendingCount, color: Colors.orange),
-                _statusCount('confirmed', confirmedCount, color: Colors.green),
-                _statusCount('declined', declinedCount, color: Colors.red),
-                _statusCount('completed', completedCount, color: Colors.blue),
-                _statusCount('cancelled', cancelledCount,
-                    color: const Color.fromARGB(255, 247, 0, 255)),
-              ],
-            ),
-          ],
-        ),
-      ),
-    ],
-  );
-}
+      ],
+    );
+  }
 
   Widget _statusCount(String label, int count, {required Color color}) {
     return Column(

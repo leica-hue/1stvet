@@ -222,7 +222,8 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                             .toList();
 
                         final filteredAppointments = appointments.where((appt) {
-                          final matchesStatus = _selectedFilter == "all" || appt.status == _selectedFilter;
+                            final matchesStatus = (_selectedFilter == "all" && appt.status != "completed")
+                        || _selectedFilter == appt.status;
                           final matchesDate = _selectedDay == null ||
                               _isSameDate(appt.appointmentDateTime, _selectedDay!);
                           return matchesStatus && matchesDate;
@@ -240,8 +241,8 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                                 _tabButton("pending"),
                                 _tabButton("confirmed"),
                                 _tabButton("declined"),
-                                _tabButton("completed"),
                                 _tabButton("cancelled"),
+                                _tabButton("completed"),
                               ],
                             ),
                             const SizedBox(height: 20),

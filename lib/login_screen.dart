@@ -146,89 +146,114 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   // 🔹 Google Login
-  Future<void> _loginWithGoogle() async {
-    if (_isLoading) return;
-    setState(() => _isLoading = true);
+Future<void> _loginWithGoogle() async {
+  if (_isLoading) return;
+  setState(() => _isLoading = true);
 
-    try {
-      final googleSignIn = GoogleSignIn(
-        clientId:
-            '154419208249-p7i6v8veehcm32gh2v81ho78uallj4aq.apps.googleusercontent.com',
-      );
+  try {
+    final googleSignIn = GoogleSignIn(
+      clientId:
+          '154419208249-p7i6v8veehcm32gh2v81ho78uallj4aq.apps.googleusercontent.com',
+    );
 
-      final googleUser = await googleSignIn.signIn();
-      if (googleUser == null) return;
+    final googleUser = await googleSignIn.signIn();
+    if (googleUser == null) return;
 
-      final googleAuth = await googleUser.authentication;
-      final credential = GoogleAuthProvider.credential(
-        accessToken: googleAuth.accessToken,
-        idToken: googleAuth.idToken,
-      );
+    final googleAuth = await googleUser.authentication;
+    final credential = GoogleAuthProvider.credential(
+      accessToken: googleAuth.accessToken,
+      idToken: googleAuth.idToken,
+    );
 
-      final userCred =
-          await FirebaseAuth.instance.signInWithCredential(credential);
+    final userCred = await FirebaseAuth.instance.signInWithCredential(credential);
+    final user = userCred.user!;
+
+    // Save user data to SharedPreferences
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('name', user.displayName ?? 'Google User');
+    await prefs.setString('email', user.email ?? '');
+    await prefs.setString('profilePic', user.photoURL ?? '');
+
+    // 🔹 Register in Firestore if not exists
+    final userDoc = FirebaseFirestore.instance.collection('vets').doc(user.uid);
+    final docSnapshot = await userDoc.get();
+    if (!docSnapshot.exists) {
+      await userDoc.set({
+        'name': user.displayName ?? 'Google User',
+        'email': user.email ?? '',
+        'profilePic': user.photoURL ?? '',
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+    }
+
+    if (!mounted) return;
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (_) => const DashboardScreen()),
+    );
+  } catch (e) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Google login failed: $e')),
+    );
+  } finally {
+    if (mounted) setState(() => _isLoading = false);
+  }
+}
+
+  // 🔹 Facebook Login
+Future<void> _loginWithFacebook() async {
+  if (_isLoading) return;
+  setState(() => _isLoading = true);
+
+  try {
+    final result = await FacebookAuth.instance.login();
+    if (result.status == LoginStatus.success) {
+      final userData = await FacebookAuth.instance.getUserData();
+      final credential = FacebookAuthProvider.credential(result.accessToken!.token);
+      final userCred = await FirebaseAuth.instance.signInWithCredential(credential);
       final user = userCred.user!;
 
+      // Save user data to SharedPreferences
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('name', user.displayName ?? 'Google User');
-      await prefs.setString('email', user.email ?? '');
-      await prefs.setString('profilePic', user.photoURL ?? '');
+      await prefs.setString('name', userData['name'] ?? '');
+      await prefs.setString('email', userData['email'] ?? '');
+      await prefs.setString(
+          'profilePic', userData['picture']?['data']?['url'] ?? '');
+
+      // 🔹 Register in Firestore if not exists
+      final userDoc = FirebaseFirestore.instance.collection('vets').doc(user.uid);
+      final docSnapshot = await userDoc.get();
+      if (!docSnapshot.exists) {
+        await userDoc.set({
+          'name': userData['name'] ?? '',
+          'email': userData['email'] ?? '',
+          'profilePic': userData['picture']?['data']?['url'] ?? '',
+          'createdAt': FieldValue.serverTimestamp(),
+        });
+      }
 
       if (!mounted) return;
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (_) => const DashboardScreen()),
       );
-    } catch (e) {
+    } else if (result.status == LoginStatus.cancelled) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Google login failed: $e')),
+        const SnackBar(content: Text('Facebook login cancelled.')),
       );
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
-  // 🔹 Facebook Login
-  Future<void> _loginWithFacebook() async {
-    if (_isLoading) return;
-    setState(() => _isLoading = true);
-
-    try {
-      final result = await FacebookAuth.instance.login();
-      if (result.status == LoginStatus.success) {
-        final userData = await FacebookAuth.instance.getUserData();
-        final credential =
-            FacebookAuthProvider.credential(result.accessToken!.token);
-        await FirebaseAuth.instance.signInWithCredential(credential);
-
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setString('name', userData['name'] ?? '');
-        await prefs.setString('email', userData['email'] ?? '');
-        await prefs.setString(
-            'profilePic', userData['picture']?['data']?['url'] ?? '');
-
-        if (!mounted) return;
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const DashboardScreen()),
-        );
-      } else if (result.status == LoginStatus.cancelled) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Facebook login cancelled.')),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Facebook login failed: ${result.message}')),
-        );
-      }
-    } catch (e) {
+    } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Facebook login error: $e')),
+        SnackBar(content: Text('Facebook login failed: ${result.message}')),
       );
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
     }
+  } catch (e) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Facebook login error: $e')),
+    );
+  } finally {
+    if (mounted) setState(() => _isLoading = false);
   }
+}
 
   // 🔹 Password Reset
   Future<void> _handleForgotPassword() async {
