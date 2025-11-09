@@ -1,323 +1,221 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
-class PaymentOptionScreen extends StatefulWidget {
-  const PaymentOptionScreen({super.key});
-
-  @override
-  State<PaymentOptionScreen> createState() => _PaymentOptionScreenState();
+// Defining colors based on the current design theme (Greens and Yellow)
+class AppColors {
+  static const Color primaryGreen = Color(0xFF6B8E23); // Darker Green (Banner base)
+  static const Color secondaryGreen = Color(0xFF728D5A); // Header/Accent Green
+  static const Color actionYellow = Color(0xFFEAF086); // Light Yellow (Action button)
+  static const Color backgroundLight = Color(0xFFF8F9F5); // Very light background
+  static const Color appBarGreen = Color(0xFFBDD9A4); // App bar background
+  static const Color gcashBlue = Color(0xFF32A0E4); // GCash Icon/Pay Now Button Color
 }
 
-class _PaymentOptionScreenState extends State<PaymentOptionScreen> {
-  String? selectedPayment; // Track selected payment method
+// Converted back to StatelessWidget as the verification modal and its state are removed.
+class PaymentOptionScreen extends StatelessWidget {
+  const PaymentOptionScreen({super.key});
 
-  // Controllers for credit card inputs
-  final TextEditingController cardNumberController = TextEditingController();
-  final TextEditingController expiryController = TextEditingController();
-  final TextEditingController cvvController = TextEditingController();
-  final TextEditingController nameController = TextEditingController();
+  // --- Widget Builders ---
 
-  final double inputHeight = 55; // uniform height for all inputs
+  Widget _buildPremiumBanner() {
+    // Enhanced banner with gradient and heavier shadow
+    return Container(
+      padding: const EdgeInsets.all(30),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        gradient: const LinearGradient(
+          colors: [AppColors.primaryGreen, AppColors.secondaryGreen],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: AppColors.primaryGreen.withOpacity(0.5),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: const Column(
+        children: [
+          Icon(Icons.workspace_premium, color: Colors.white, size: 60),
+          SizedBox(height: 15),
+          Text(
+            'Go Premium: ₱499.00/month',
+            style: TextStyle(
+              fontSize: 28,
+              fontWeight: FontWeight.w900,
+              color: Colors.white,
+            ),
+          ),
+          SizedBox(height: 10), 
+          Text(
+            // UPDATED: Highlighting vet visibility on every user's screen
+            'Unlock all features and get priority vet visibility on every user\'s screen!',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 16,
+              color: AppColors.actionYellow,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGCashInstructionCard(BuildContext context) {
+    return Card(
+      elevation: 8,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      child: Padding(
+        padding: const EdgeInsets.all(30.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'GCash Payment Details',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: AppColors.secondaryGreen,
+                  ),
+                ),
+                // Using a stylized GCash color icon
+                const Icon(Icons.payment, size: 45, color: AppColors.gcashBlue),
+              ],
+            ),
+            const Divider(height: 30, thickness: 1.5),
+
+            // Only showing Amount Due
+            _buildDetailRow(
+              'Amount Due:',
+              '₱499.00',
+              Icons.attach_money,
+              Colors.redAccent,
+            ),
+            const SizedBox(height: 25),
+
+            const Text(
+              // UPDATED: Simple instruction, as verification step is removed
+              'Action Required: Tap "Pay Now" to securely open the GCash app and complete your transaction. Your Premium features will be activated immediately upon successful payment.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 14, color: Colors.black54, fontStyle: FontStyle.italic),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDetailRow(String label, String value, IconData icon, Color color) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Icon(icon, size: 20, color: color),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              label,
+              style: const TextStyle(fontSize: 16, color: Colors.black87),
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: color.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: color.withOpacity(0.5)),
+            ),
+            child: Text(
+              value,
+              style: TextStyle(
+                fontWeight: FontWeight.bold,
+                color: color,
+                fontSize: 15,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Button to simulate deep link redirection for immediate payment
+  Widget _buildPayNowButton(BuildContext context) {
+    return ElevatedButton.icon(
+      onPressed: () {
+        // Simulate successful redirection to GCash app/API
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("🚀 Redirecting to GCash app to complete payment of ₱499.00..."),
+            backgroundColor: AppColors.primaryGreen,
+            duration: Duration(seconds: 3),
+          ),
+        );
+        // In a real app, this would use a URL launcher or deep linking library
+        // launchUrl(Uri.parse('gcash://pay?amount=499.00&...'));
+      },
+      icon: const Icon(Icons.send_to_mobile, color: Colors.white),
+      label: const Text(
+        'Pay Now',
+        style: TextStyle(
+          fontSize: 20,
+          fontWeight: FontWeight.w700,
+          color: Colors.white,
+        ),
+      ),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: AppColors.gcashBlue, // Use GCash Blue for high contrast/trust
+        padding: const EdgeInsets.symmetric(vertical: 22, horizontal: 24),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
+        elevation: 12,
+        shadowColor: AppColors.gcashBlue.withOpacity(0.8),
+      ),
+    );
+  }
+
+  // --- Main Build Method ---
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9F5),
+      backgroundColor: AppColors.backgroundLight,
       appBar: AppBar(
-        title: const Text("Choose Payment Method"),
-        backgroundColor: const Color(0xFF728D5A),
-        centerTitle: true,
+        title: const Text(
+          'Upgrade to Premium',
+          style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black),
+        ),
+        backgroundColor: AppColors.appBarGreen,
+        elevation: 0,
+        iconTheme: const IconThemeData(color: Colors.black),
       ),
       body: Center(
         child: SingleChildScrollView(
-          child: Container(
-            width: 500,
-            padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 8,
-                  offset: const Offset(0, 5),
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  "Select Your Payment Option",
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.black87,
-                  ),
-                ),
-                const SizedBox(height: 10),
-                const Text(
-                  "Please choose your preferred payment method below.",
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 15, color: Colors.black54),
-                ),
-                const SizedBox(height: 30),
-
-                // GCash Option
-                _paymentOption(
-                  icon: Icons.phone_iphone,
-                  title: "GCash",
-                  subtitle: "Pay easily using your GCash wallet",
-                  value: "gcash",
-                ),
-                const SizedBox(height: 15),
-
-                // PayMaya Option
-                _paymentOption(
-                  icon: Icons.account_balance_wallet,
-                  title: "PayMaya",
-                  subtitle: "Secure transactions via PayMaya",
-                  value: "paymaya",
-                ),
-                const SizedBox(height: 15),
-
-                // Credit Card Option
-                _paymentOption(
-                  icon: Icons.credit_card,
-                  title: "Credit / Debit Card",
-                  subtitle: "Use your Visa or Mastercard securely",
-                  value: "card",
-                ),
-
-                // Show credit card form when selected
-                if (selectedPayment == "card") ...[
-                  const SizedBox(height: 20),
-                  _buildCreditCardForm(),
-                ],
-
-                const SizedBox(height: 40),
-
-                // Proceed Button
-                ElevatedButton(
-                  onPressed: selectedPayment == null
-                      ? null
-                      : () {
-                          if (selectedPayment == "card") {
-                            _validateCardForm(context);
-                          } else {
-                            _showPaymentDetails(context, selectedPayment!);
-                          }
-                        },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFEAF086),
-                    foregroundColor: Colors.black,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 50, vertical: 16),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                  ),
-                  child: const Text(
-                    "Proceed to Payment",
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _paymentOption({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required String value,
-  }) {
-    final bool isSelected = selectedPayment == value;
-    return InkWell(
-      onTap: () {
-        setState(() {
-          selectedPayment = value;
-        });
-      },
-      child: Container(
-        padding: const EdgeInsets.all(18),
-        decoration: BoxDecoration(
-          color:
-              isSelected ? const Color(0xFFBDD9A4).withOpacity(0.3) : Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color:
-                isSelected ? const Color(0xFF728D5A) : const Color(0xFFBDD9A4),
-            width: 2,
-          ),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, size: 40, color: const Color(0xFF728D5A)),
-            const SizedBox(width: 20),
-            Expanded(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 550),
+            child: Padding(
+              padding: const EdgeInsets.all(24.0),
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text(title,
-                      style: const TextStyle(
-                          fontSize: 18, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 4),
-                  Text(subtitle,
-                      style:
-                          const TextStyle(fontSize: 14, color: Colors.black54)),
+                  _buildPremiumBanner(),
+                  const SizedBox(height: 30),
+                  _buildGCashInstructionCard(context),
+                  const SizedBox(height: 40), // Increased spacing for the single final button
+                  _buildPayNowButton(context), // The only action button remaining
                 ],
               ),
             ),
-            Radio<String>(
-              value: value,
-              groupValue: selectedPayment,
-              activeColor: const Color(0xFF728D5A),
-              onChanged: (newValue) {
-                setState(() {
-                  selectedPayment = newValue;
-                });
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildCreditCardForm() {
-    final inputDecoration = InputDecoration(
-      labelStyle: const TextStyle(fontSize: 15),
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 15),
-      counterText: "",
-    );
-
-    return Column(
-      children: [
-        SizedBox(
-          height: inputHeight,
-          child: TextField(
-            controller: nameController,
-            decoration: inputDecoration.copyWith(labelText: "Cardholder Name"),
           ),
         ),
-        const SizedBox(height: 12),
-        SizedBox(
-          height: inputHeight,
-          child: TextField(
-            controller: cardNumberController,
-            decoration: inputDecoration.copyWith(labelText: "Card Number"),
-            keyboardType: TextInputType.number,
-            maxLength: 16,
-          ),
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: SizedBox(
-                height: inputHeight,
-                child: TextField(
-                  controller: expiryController,
-                  decoration: inputDecoration.copyWith(labelText: "MM/YY"),
-                  keyboardType: TextInputType.datetime,
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: SizedBox(
-                height: inputHeight,
-                child: TextField(
-                  controller: cvvController,
-                  decoration: inputDecoration.copyWith(labelText: "CVV"),
-                  keyboardType: TextInputType.number,
-                  maxLength: 3,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  void _validateCardForm(BuildContext context) {
-    if (cardNumberController.text.isEmpty ||
-        expiryController.text.isEmpty ||
-        cvvController.text.isEmpty ||
-        nameController.text.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please fill in all credit card details.")),
-      );
-      return;
-    }
-
-    _showPaymentDetails(context, "card");
-  }
-
-  void _showPaymentDetails(BuildContext context, String paymentType) {
-    String paymentTitle;
-    String instructions;
-
-    if (paymentType == "gcash") {
-      paymentTitle = "GCash Payment";
-      instructions =
-          "To complete your payment, open your GCash app and send payment to 09XX-XXX-XXXX.";
-    } else if (paymentType == "paymaya") {
-      paymentTitle = "PayMaya Payment";
-      instructions =
-          "To complete your payment, open your PayMaya app and send payment to paymaya@sample.com.";
-    } else {
-      paymentTitle = "Credit / Debit Card";
-      instructions =
-          "Your card payment will be processed securely. (Simulation only — no real API connected)";
-    }
-
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title:
-            Text(paymentTitle, style: const TextStyle(fontWeight: FontWeight.bold)),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.qr_code_2, size: 100, color: Color(0xFF728D5A)),
-            const SizedBox(height: 10),
-            Text(
-              instructions,
-              style: const TextStyle(fontSize: 15, color: Colors.black87),
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text("Cancel"),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text("$paymentTitle initiated successfully.")),
-              );
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF728D5A),
-              foregroundColor: Colors.white,
-            ),
-            child: const Text("Continue"),
-          ),
-        ],
       ),
     );
   }
