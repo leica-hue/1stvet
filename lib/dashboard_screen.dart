@@ -475,7 +475,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(_name.isNotEmpty ? _name : 'Vet Name', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                Text(_name.isNotEmpty ? 'Dr. $_name' : 'Vet Name', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                 Text(_location.isNotEmpty ? _location : 'Location not set'),
                 Text(_specialization.isNotEmpty ? _specialization : 'Specialization not set', style: const TextStyle(color: Colors.black87)),
                 const SizedBox(height: 6),

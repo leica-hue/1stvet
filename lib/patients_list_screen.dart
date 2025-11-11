@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+// 🎯 CRITICAL: Import the VetHistoryNotesScreen
+import 'vet_history_notes_screen.dart'; 
 
 class PatientHistoryScreen extends StatefulWidget {
   const PatientHistoryScreen({super.key});
@@ -51,6 +53,20 @@ class _PatientHistoryScreenState extends State<PatientHistoryScreen> {
       return concerns.values.map((v) => v['name'] ?? v).join(', ');
     }
     return 'None';
+  }
+
+  // 🎯 NEW: Function to navigate to VetHistoryNotesScreen
+  void _onViewNotes(String appointmentId, String petName) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        // Assuming VetHistoryNotesScreen takes the appointmentId to load/update notes
+        builder: (context) => VetHistoryNotesScreen(
+          appointmentId: appointmentId,
+          patientName: petName, // Optional, but nice for the screen title
+        ),
+      ),
+    );
   }
 
   @override
@@ -190,7 +206,6 @@ class _PatientHistoryScreenState extends State<PatientHistoryScreen> {
                   return StreamBuilder<QuerySnapshot>(
                     stream: _firestore
                         .collection('user_appointments')
-                        // ✅ Changed sort field to a more common appointment field, assuming it exists
                         .orderBy('appointmentDateTime', descending: sortDescending) 
                         .snapshots(),
                     builder: (context, appointmentSnapshot) {
@@ -212,13 +227,9 @@ class _PatientHistoryScreenState extends State<PatientHistoryScreen> {
                         final appData = appDoc.data() as Map<String, dynamic>;
 
                         // 🎯 CRITICAL FIX: Determine which ID to use to fetch Pet Data
-                        // 1. Check if the appointment document stores the Pet's Document ID directly (best practice)
                         final petDocIdInAppointment = appData['petDocId'] ?? appData['petId'] ?? ''; 
-                        
-                        // 2. Fallback to User ID if a pet ID isn't found
                         final userId = appData['userId'] ?? '';
                         
-                        // 3. Prioritize pet data lookup by doc ID, then by user ID
                         final petData = petMapByDocId[petDocIdInAppointment] ?? petMapByUserId[userId] ?? {};
 
                         return {
@@ -266,22 +277,23 @@ class _PatientHistoryScreenState extends State<PatientHistoryScreen> {
                           columnSpacing: 20,
                           headingRowColor:
                               MaterialStateProperty.resolveWith((states) => headerColor.withOpacity(0.5)),
-                          // 🎯 Added all PetInfo columns here
+                          // 🎯 NEW COLUMN: Action
                           columns: const [
                             DataColumn(label: Text("Patient")),
                             DataColumn(label: Text("Species")),
                             DataColumn(label: Text("Breed")),
                             DataColumn(label: Text("Sex")),
-                            DataColumn(label: Text("Spayed/Neutered")), // NEW
-                            DataColumn(label: Text("Weight (kg)")),      // NEW
-                            DataColumn(label: Text("Medical Concerns")), // NEW
+                            DataColumn(label: Text("Spayed/Neutered")),
+                            DataColumn(label: Text("Weight (kg)")),
+                            DataColumn(label: Text("Medical Concerns")),
                             DataColumn(label: Text("Owner")),
                             DataColumn(label: Text("Date & Time")),
                             DataColumn(label: Text("Purpose")),
                             DataColumn(label: Text("Status")),
                             DataColumn(label: Text("Vet Notes")),
-                            DataColumn(label: Text("Pet Record Created")), // NEW
-                            DataColumn(label: Text("Pet Record Updated")), // NEW
+                            DataColumn(label: Text("Pet Record Created")),
+                            DataColumn(label: Text("Pet Record Updated")),
+                            DataColumn(label: Text("Action")), // 🎯 NEW COLUMN
                           ],
                           rows: combinedDocs.map((data) {
                             final formattedAppointmentDate = data['Appointment Date'] is Timestamp
@@ -298,6 +310,9 @@ class _PatientHistoryScreenState extends State<PatientHistoryScreen> {
                             
                             final status = data['Status'] as String;
                             final imageUrl = data['Image'] as String?;
+                            // 🎯 Get the required IDs
+                            final appointmentId = data['Appointment ID'] as String;
+                            final petName = data['Patient Name'] as String;
 
                             return DataRow(cells: [
                               DataCell(Row(
@@ -310,15 +325,15 @@ class _PatientHistoryScreenState extends State<PatientHistoryScreen> {
                                     backgroundColor: Colors.grey[200],
                                   ),
                                   const SizedBox(width: 8),
-                                  Text(data['Patient Name'] as String),
+                                  Text(petName), // Use petName here
                                 ],
                               )),
                               DataCell(Text(data['Species'] as String)),
                               DataCell(Text(data['Breed'] as String)),
                               DataCell(Text(data['Sex'] as String)),
-                              DataCell(Text(data['Spayed/Neutered'] as String)), // NEW Cell
-                              DataCell(Text(data['Weight'].toString())),       // NEW Cell
-                              DataCell(Text(data['Medical Concerns'] as String)), // NEW Cell
+                              DataCell(Text(data['Spayed/Neutered'] as String)),
+                              DataCell(Text(data['Weight'].toString())),
+                              DataCell(Text(data['Medical Concerns'] as String)),
                               DataCell(Text(data['Owner Info'] as String)),
                               DataCell(Text(formattedAppointmentDate)),
                               DataCell(Text(data['Purpose'] as String)),
@@ -337,8 +352,22 @@ class _PatientHistoryScreenState extends State<PatientHistoryScreen> {
                                 ),
                               )),
                               DataCell(Text(data['Vet Notes'] as String)),
-                              DataCell(Text(formattedCreatedDate)), // NEW Cell
-                              DataCell(Text(formattedUpdatedDate)), // NEW Cell
+                              DataCell(Text(formattedCreatedDate)),
+                              DataCell(Text(formattedUpdatedDate)),
+                              // 🎯 NEW: Action Button DataCell
+                              DataCell(
+                                ElevatedButton.icon(
+                                  onPressed: () => _onViewNotes(appointmentId, petName),
+                                  icon: const Icon(Icons.edit_note, size: 18),
+                                  label: const Text("Notes"),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: primaryGreen,
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                                    minimumSize: Size.zero, // Remove fixed height
+                                  ),
+                                ),
+                              ),
                             ]);
                           }).toList(),
                         ),

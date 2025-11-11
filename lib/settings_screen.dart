@@ -88,32 +88,108 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  // Show password dialog
-  Future<String?> _showPasswordDialog() async {
-    final TextEditingController _passwordController = TextEditingController();
+  // --- PASSWORD CHANGE IMPLEMENTATION ---
 
-    return showDialog<String>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Confirm Password'),
-          content: TextField(
-            controller: _passwordController,
-            obscureText: true,
-            decoration: const InputDecoration(labelText: 'Enter your password'),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context, null), child: const Text('Cancel')),
-            ElevatedButton(
-                onPressed: () => Navigator.pop(context, _passwordController.text),
-                child: const Text('Confirm')),
-          ],
-        );
-      },
-    );
-  }
+  // Dialog for current password (re-authentication) with working visibility toggle
+// MODIFIED Dialog to ask for the current password (re-authentication)
+Future<String?> _showCurrentPasswordDialog() async {
+  final TextEditingController passwordController = TextEditingController();
+  // State variable defined OUTSIDE the StatefulBuilder's builder function
+  bool obscureText = true; 
 
+  return showDialog<String>(
+    context: context,
+    barrierDismissible: false,
+    builder: (context) {
+      return StatefulBuilder(
+        builder: (context, setStateSB) {
+          return AlertDialog(
+            title: const Text('Confirm Current Password'),
+            content: TextField(
+              controller: passwordController,
+              obscureText: obscureText, // Uses the state variable
+              decoration: InputDecoration(
+                labelText: 'Enter your current password',
+                suffixIcon: IconButton(
+                  icon: Icon(
+                    obscureText ? Icons.visibility : Icons.visibility_off,
+                  ),
+                  onPressed: () {
+                    // This setStateSB updates the variable declared outside
+                    setStateSB(() { 
+                      obscureText = !obscureText;
+                    });
+                  },
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context, null), child: const Text('Cancel')),
+              ElevatedButton(
+                  onPressed: () => Navigator.pop(context, passwordController.text),
+                  child: const Text('Confirm')),
+            ],
+          );
+        },
+      );
+    },
+  );
+}
+
+  // Dialog for new password with working visibility toggle and validation
+// MODIFIED Dialog to ask for the new password
+Future<String?> _showNewPasswordDialog() async {
+  final TextEditingController newPasswordController = TextEditingController();
+  // State variable defined OUTSIDE the StatefulBuilder's builder function
+  bool obscureText = true; 
+
+  return showDialog<String>(
+    context: context,
+    barrierDismissible: false,
+    builder: (context) {
+      return StatefulBuilder(
+        builder: (context, setStateSB) {
+          return AlertDialog(
+            title: const Text('Set New Password'),
+            content: TextField(
+              controller: newPasswordController,
+              obscureText: obscureText, // Uses the state variable
+              decoration: InputDecoration(
+                labelText: 'Enter new password (min 6 characters)',
+                suffixIcon: IconButton(
+                  icon: Icon(
+                    obscureText ? Icons.visibility : Icons.visibility_off,
+                  ),
+                  onPressed: () {
+                    // This setStateSB updates the variable declared outside
+                    setStateSB(() {
+                      obscureText = !obscureText;
+                    });
+                  },
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context, null), child: const Text('Cancel')),
+              ElevatedButton(
+                  onPressed: () {
+                    final newPass = newPasswordController.text;
+                    if (newPass.length < 6) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(content: Text('Password must be at least 6 characters.')),
+                      );
+                    } else {
+                      Navigator.pop(context, newPass);
+                    }
+                  },
+                  child: const Text('Set Password')),
+            ],
+          );
+        },
+      );
+    },
+  );
+}
   // Re-authenticate user
   Future<bool> _reauthenticate(String password) async {
     if (user == null || user?.email == null) return false;
@@ -123,19 +199,64 @@ class _SettingsScreenState extends State<SettingsScreen> {
           EmailAuthProvider.credential(email: user!.email!, password: password);
       await user!.reauthenticateWithCredential(credential);
       return true;
-    } catch (e) {
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return false;
+      String message;
+      if (e.code == 'wrong-password') {
+        message = 'Incorrect current password.';
+      } else {
+        message = 'Re-authentication failed. Try logging in again.';
+      }
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Incorrect password. Action cancelled.')),
+        SnackBar(content: Text(message)),
       );
       return false;
     }
   }
 
+  // Main function to handle password change
+  Future<void> _changePassword() async {
+    if (user == null) return;
+
+    // 1. Get the new desired password
+    final newPassword = await _showNewPasswordDialog();
+    if (newPassword == null || newPassword.isEmpty) return;
+
+    // 2. Get the current password for re-authentication
+    final currentPassword = await _showCurrentPasswordDialog();
+    if (currentPassword == null || currentPassword.isEmpty) return;
+
+    // 3. Re-authenticate
+    final authenticated = await _reauthenticate(currentPassword);
+    if (!authenticated) return;
+
+    // 4. Update password
+    try {
+      await user!.updatePassword(newPassword);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Password changed successfully!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text('Failed to change password: ${e.message}'),
+            backgroundColor: Colors.red),
+      );
+    }
+  }
+  
+  // --- END PASSWORD CHANGE IMPLEMENTATION ---
+
   Future<void> _deleteAccount() async {
     if (user == null) return;
 
     // Ask for password
-    final password = await _showPasswordDialog();
+    final password = await _showCurrentPasswordDialog(); // Reusing the password dialog for security
     if (password == null || password.isEmpty) return;
 
     final authenticated = await _reauthenticate(password);
@@ -151,10 +272,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
           backgroundColor: Colors.green,
         ),
       );
-      Navigator.of(context).popUntil((route) => route.isFirst); // back to login screen
-    } catch (e) {
+      // Navigate to login screen
+      if (Navigator.of(context).canPop()) {
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      }
+    } on FirebaseAuthException catch (e) {
+       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Failed to delete account: $e'), backgroundColor: Colors.red),
+        SnackBar(content: Text('Failed to delete account: ${e.message}'), backgroundColor: Colors.red),
       );
     }
   }
@@ -196,7 +321,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ListTile(
             leading: const Icon(Icons.lock),
             title: const Text('Change Password'),
-            onTap: () {}, // keep your existing password change dialog
+            onTap: _changePassword, 
           ),
           const Divider(height: 30),
           const Text('Vet Status', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
@@ -220,8 +345,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
             onTap: () => _confirmAction(
               _isInactive ? 'Reactivate Account' : 'Deactivate Account',
               _isInactive
-                  ? 'Do you want to reactivate your account?'
-                  : 'Do you want to deactivate your account?',
+                  ? 'Do you want to reactivate your account? This will make you available for bookings.'
+                  : 'Do you want to deactivate your account? You will be marked as unavailable.',
               () => _setInactive(!_isInactive),
             ),
           ),
@@ -230,7 +355,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             title: const Text('Delete Account'),
             onTap: () => _confirmAction(
               'Delete Account',
-              'This action is permanent. Do you really want to delete your account?',
+              'This action is permanent and irreversible. Your data will be deleted. Do you really want to proceed?',
               _deleteAccount,
             ),
           ),

@@ -4,16 +4,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_application_1/login_screen.dart';
 import 'package:flutter_application_1/settings_screen.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'firebase_options.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'dashboard_screen.dart';
-import 'appointments_table_view.dart';
 import 'patients_list_screen.dart';
 import 'profile_screen.dart';
 import 'feedback_screen.dart';
-import 'zoom_meeting_screen.dart';
-import 'vet_history_notes_screen.dart';
 import 'analytics_screen.dart';
 
 
@@ -428,35 +424,10 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
               child: Text("Notes: ${appt.vetNotes}",
                   style: const TextStyle(fontStyle: FontStyle.italic)),
             ),
-            // 🎥 Show Join Consultation button for online confirmed appointments
-          if (appt.appointmentType == "Online Consultation" &&
-              appt.status == "confirmed" &&
-              appt.userEmail.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end, // Ensures the Row content aligns to the end (right)
-              children: [
-                ElevatedButton.icon(
-                  onPressed: () => _joinOnlineConsultation(appt.userEmail),
-                  icon: const Icon(Icons.videocam, size: 18),
-                  label: const Text("Join Consultation"),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color.fromARGB(255, 157, 235, 159),
-                    padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14),
-                    ),
-                    textStyle: const TextStyle(
-                        fontSize: 13, fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ],
-            ),
-
-          ],
-        ]    
-        ),
-      );
+          // Online Consultation button is removed here
+        ] 
+      ),
+    );
   }
 
   Widget _buildSidebar() {
@@ -481,36 +452,7 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
       ),
     );
   }
-    void _joinOnlineConsultation(String userEmail) async {
-      // Assuming userEmail is the meeting link for simplicity, 
-      // as the original code was using it as the link parameter.
-      String meetingLink = userEmail;
-      
-      // NOTE: This logic assumes the 'userEmail' is actually a valid URL/Meeting Link
-      // as used in the original 'if (appt.userEmail.isNotEmpty)' and 
-      // 'onPressed: () => _joinOnlineConsultation(appt.userEmail)'.
-      // If the email is NOT the meeting link, the logic here will be flawed, 
-      // and you will need to update the Appointment model and Firestore to store the actual meeting link.
-
-      if (meetingLink.startsWith("http")) {
-        Uri url = Uri.parse(meetingLink);
-        if (await canLaunchUrl(url)) {
-          await launchUrl(url, mode: LaunchMode.externalApplication);
-        } else {
-          if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text("Could not open meeting link.")),
-            );
-          }
-        }
-      } else {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Invalid meeting link.")),
-          );
-        }
-      }
-    }
+    // _joinOnlineConsultation method removed.
 
   Widget _buildSidebarItem(IconData icon, String title, {bool selected = false}) {
     return InkWell(
