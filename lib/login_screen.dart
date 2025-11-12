@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
+import 'package:flutter_facebook_auth/flutter_facebook_auth.dart'; // Keep for now if the library is still included, but the function is removed.
 import 'package:google_sign_in/google_sign_in.dart';
 import 'dashboard_screen.dart';
 import 'signup_screen.dart';
@@ -146,88 +146,42 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   // 🔹 Google Login
-Future<void> _loginWithGoogle() async {
-  if (_isLoading) return;
-  setState(() => _isLoading = true);
+  Future<void> _loginWithGoogle() async {
+    if (_isLoading) return;
+    setState(() => _isLoading = true);
 
-  try {
-    final googleSignIn = GoogleSignIn(
-      clientId:
-          '154419208249-p7i6v8veehcm32gh2v81ho78uallj4aq.apps.googleusercontent.com',
-    );
+    try {
+      final googleSignIn = GoogleSignIn(
+        clientId:
+            '154419208249-p7i6v8veehcm32gh2v81ho78uallj4aq.apps.googleusercontent.com',
+      );
 
-    final googleUser = await googleSignIn.signIn();
-    if (googleUser == null) return;
+      final googleUser = await googleSignIn.signIn();
+      if (googleUser == null) return;
 
-    final googleAuth = await googleUser.authentication;
-    final credential = GoogleAuthProvider.credential(
-      accessToken: googleAuth.accessToken,
-      idToken: googleAuth.idToken,
-    );
+      final googleAuth = await googleUser.authentication;
+      final credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
 
-    final userCred = await FirebaseAuth.instance.signInWithCredential(credential);
-    final user = userCred.user!;
-
-    // Save user data to SharedPreferences
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('name', user.displayName ?? 'Google User');
-    await prefs.setString('email', user.email ?? '');
-    await prefs.setString('profilePic', user.photoURL ?? '');
-
-    // 🔹 Register in Firestore if not exists
-    final userDoc = FirebaseFirestore.instance.collection('vets').doc(user.uid);
-    final docSnapshot = await userDoc.get();
-    if (!docSnapshot.exists) {
-      await userDoc.set({
-        'name': user.displayName ?? 'Google User',
-        'email': user.email ?? '',
-        'profilePic': user.photoURL ?? '',
-        'createdAt': FieldValue.serverTimestamp(),
-      });
-    }
-
-    if (!mounted) return;
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (_) => const DashboardScreen()),
-    );
-  } catch (e) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Google login failed: $e')),
-    );
-  } finally {
-    if (mounted) setState(() => _isLoading = false);
-  }
-}
-
-  // 🔹 Facebook Login
-Future<void> _loginWithFacebook() async {
-  if (_isLoading) return;
-  setState(() => _isLoading = true);
-
-  try {
-    final result = await FacebookAuth.instance.login();
-    if (result.status == LoginStatus.success) {
-      final userData = await FacebookAuth.instance.getUserData();
-      final credential = FacebookAuthProvider.credential(result.accessToken!.token);
       final userCred = await FirebaseAuth.instance.signInWithCredential(credential);
       final user = userCred.user!;
 
       // Save user data to SharedPreferences
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('name', userData['name'] ?? '');
-      await prefs.setString('email', userData['email'] ?? '');
-      await prefs.setString(
-          'profilePic', userData['picture']?['data']?['url'] ?? '');
+      await prefs.setString('name', user.displayName ?? 'Google User');
+      await prefs.setString('email', user.email ?? '');
+      await prefs.setString('profilePic', user.photoURL ?? '');
 
       // 🔹 Register in Firestore if not exists
       final userDoc = FirebaseFirestore.instance.collection('vets').doc(user.uid);
       final docSnapshot = await userDoc.get();
       if (!docSnapshot.exists) {
         await userDoc.set({
-          'name': userData['name'] ?? '',
-          'email': userData['email'] ?? '',
-          'profilePic': userData['picture']?['data']?['url'] ?? '',
+          'name': user.displayName ?? 'Google User',
+          'email': user.email ?? '',
+          'profilePic': user.photoURL ?? '',
           'createdAt': FieldValue.serverTimestamp(),
         });
       }
@@ -237,23 +191,19 @@ Future<void> _loginWithFacebook() async {
         context,
         MaterialPageRoute(builder: (_) => const DashboardScreen()),
       );
-    } else if (result.status == LoginStatus.cancelled) {
+    } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Facebook login cancelled.')),
+        SnackBar(content: Text('Google login failed: $e')),
       );
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Facebook login failed: ${result.message}')),
-      );
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
-  } catch (e) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('Facebook login error: $e')),
-    );
-  } finally {
-    if (mounted) setState(() => _isLoading = false);
   }
-}
+
+  // 🔹 Facebook Login - Function removed
+  // Future<void> _loginWithFacebook() async {
+  //   // Removed logic for Facebook login
+  // }
 
   // 🔹 Password Reset
   Future<void> _handleForgotPassword() async {
@@ -377,14 +327,14 @@ Future<void> _loginWithFacebook() async {
                             onPressed: _isLoading ? null : _handleLogin,
                             child: _isLoading
                                 ? const CircularProgressIndicator(
-                                    color: Colors.white)
+                                      color: Colors.white)
                                 : const Text(
-                                    'Login',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.white,
+                                      'Login',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.white,
+                                      ),
                                     ),
-                                  ),
                           ),
                         ),
                         const SizedBox(height: 20),
@@ -393,13 +343,14 @@ Future<void> _loginWithFacebook() async {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            IconButton(
-                              onPressed: _loginWithFacebook,
-                              icon: const Icon(Icons.facebook),
-                              color: Colors.blue[800],
-                              iconSize: 32,
-                            ),
-                            const SizedBox(width: 20),
+                            // ❌ Removed Facebook IconButton
+                            // IconButton(
+                            //   onPressed: _loginWithFacebook,
+                            //   icon: const Icon(Icons.facebook),
+                            //   color: Colors.blue[800],
+                            //   iconSize: 32,
+                            // ),
+                            // const SizedBox(width: 20), // Removed extra space since Facebook is gone
                             IconButton(
                               onPressed: _loginWithGoogle,
                               icon: Image.asset(

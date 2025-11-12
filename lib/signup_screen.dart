@@ -17,11 +17,16 @@ class _SignUpScreenState extends State<SignUpScreen> {
   final TextEditingController confirmPasswordController = TextEditingController();
   bool _isLoading = false;
 
-  InputDecoration _inputDecoration(String label, Icon icon) {
+  // Track password visibility
+  bool _passwordVisible = false;
+  bool _confirmPasswordVisible = false;
+
+  InputDecoration _inputDecoration(String label, Icon icon, {Widget? suffixIcon}) {
     return InputDecoration(
       labelText: label,
       floatingLabelBehavior: FloatingLabelBehavior.always,
       prefixIcon: icon,
+      suffixIcon: suffixIcon,
       filled: true,
       fillColor: Colors.grey.shade100,
       border: OutlineInputBorder(
@@ -32,101 +37,73 @@ class _SignUpScreenState extends State<SignUpScreen> {
     );
   }
 
-Future<void> _handleSignUp() async {
-  final name = nameController.text.trim();
-  final email = emailController.text.trim();
-  final password = passwordController.text.trim();
-  final confirmPassword = confirmPasswordController.text.trim();
+  Future<void> _handleSignUp() async {
+    final name = nameController.text.trim();
+    final email = emailController.text.trim();
+    final password = passwordController.text.trim();
+    final confirmPassword = confirmPasswordController.text.trim();
 
-  if (name.isEmpty || email.isEmpty || password.isEmpty || confirmPassword.isEmpty) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('All fields are required.')),
-    );
-    return;
-  }
-
-  if (password != confirmPassword) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Passwords do not match.')),
-    );
-    return;
-  }
-
-  setState(() {
-    _isLoading = true;
-  });
-
-  try {
-    print('🔵 Starting Firebase signup for email: $email');
-
-    // Create user with Firebase Authentication
-    UserCredential userCredential = await FirebaseAuth.instance
-        .createUserWithEmailAndPassword(
-      email: email,
-      password: password,
-    );
-
-    print('✅ User created in Auth with UID: ${userCredential.user!.uid}');
-
-    // Save user data to Firestore in vets collection
-    await FirebaseFirestore.instance
-        .collection('vets')
-        .doc(userCredential.user!.uid)
-        .set({
-      'name': name,
-      'email': email,
-      'createdAt': FieldValue.serverTimestamp(),
-    });
-
-    print('✅ User data saved to Firestore vets collection');
-
-    if (!mounted) return;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Account created successfully!')),
-    );
-
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(
-        builder: (_) => const LoginScreen(
-          registeredEmail: '',
-          registeredPassword: '',
-        ),
-      ),
-    );
-  } on FirebaseAuthException catch (e) {
-    print('❌ FirebaseAuthException: ${e.code} - ${e.message}');
-    String message;
-    if (e.code == 'weak-password') {
-      message = 'The password provided is too weak.';
-    } else if (e.code == 'email-already-in-use') {
-      message = 'An account already exists for that email.';
-    } else if (e.code == 'invalid-email') {
-      message = 'The email address is invalid.';
-    } else {
-      message = 'An error occurred: ${e.message}';
+    if (name.isEmpty || email.isEmpty || password.isEmpty || confirmPassword.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('All fields are required.')),
+      );
+      return;
     }
 
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message)),
-    );
-  } catch (e) {
-    print('❌ General error: $e');
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('An error occurred: $e')),
-    );
-  } finally {
-    if (mounted) {
-      setState(() {
-        _isLoading = false;
+    if (password != confirmPassword) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Passwords do not match.')),
+      );
+      return;
+    }
+
+    setState(() => _isLoading = true);
+
+    try {
+      // Create user with Firebase Auth
+      UserCredential userCredential = await FirebaseAuth.instance
+          .createUserWithEmailAndPassword(email: email, password: password);
+
+      // Save user data to Firestore
+      await FirebaseFirestore.instance.collection('vets').doc(userCredential.user!.uid).set({
+        'name': name,
+        'email': email,
+        'createdAt': FieldValue.serverTimestamp(),
       });
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Account created successfully!')),
+      );
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => const LoginScreen(registeredEmail: '', registeredPassword: ''),
+        ),
+      );
+    } on FirebaseAuthException catch (e) {
+      String message;
+      if (e.code == 'weak-password') {
+        message = 'The password provided is too weak.';
+      } else if (e.code == 'email-already-in-use') {
+        message = 'An account already exists for that email.';
+      } else if (e.code == 'invalid-email') {
+        message = 'The email address is invalid.';
+      } else {
+        message = 'An error occurred: ${e.message}';
+      }
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('An error occurred: $e')));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
-}
-
 
   @override
   Widget build(BuildContext context) {
@@ -136,10 +113,7 @@ Future<void> _handleSignUp() async {
         child: SingleChildScrollView(
           child: Column(
             children: [
-              Image.asset(
-                'assets/furever2.png',
-                height: 100,
-              ),
+              Image.asset('assets/furever2.png', height: 100),
               const SizedBox(height: 20),
               ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 500),
@@ -175,14 +149,36 @@ Future<void> _handleSignUp() async {
                         const SizedBox(height: 16),
                         TextField(
                           controller: passwordController,
-                          obscureText: true,
-                          decoration: _inputDecoration('Password', const Icon(Icons.lock)),
+                          obscureText: !_passwordVisible,
+                          decoration: _inputDecoration(
+                            'Password',
+                            const Icon(Icons.lock),
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _passwordVisible ? Icons.visibility : Icons.visibility_off,
+                                color: Colors.grey[600],
+                              ),
+                              onPressed: () => setState(() => _passwordVisible = !_passwordVisible),
+                            ),
+                          ),
                         ),
                         const SizedBox(height: 16),
                         TextField(
                           controller: confirmPasswordController,
-                          obscureText: true,
-                          decoration: _inputDecoration('Confirm Password', const Icon(Icons.lock_outline)),
+                          obscureText: !_confirmPasswordVisible,
+                          decoration: _inputDecoration(
+                            'Confirm Password',
+                            const Icon(Icons.lock_outline),
+                            suffixIcon: IconButton(
+                              icon: Icon(
+                                _confirmPasswordVisible
+                                    ? Icons.visibility
+                                    : Icons.visibility_off,
+                                color: Colors.grey[600],
+                              ),
+                              onPressed: () => setState(() => _confirmPasswordVisible = !_confirmPasswordVisible),
+                            ),
+                          ),
                         ),
                         const SizedBox(height: 24),
                         SizedBox(
@@ -197,9 +193,7 @@ Future<void> _handleSignUp() async {
                             ),
                             onPressed: _isLoading ? null : _handleSignUp,
                             child: _isLoading
-                                ? const CircularProgressIndicator(
-                                    color: Colors.white,
-                                  )
+                                ? const CircularProgressIndicator(color: Colors.white)
                                 : const Text(
                                     'Sign Up',
                                     style: TextStyle(
@@ -219,7 +213,10 @@ Future<void> _handleSignUp() async {
                                 Navigator.pushReplacement(
                                   context,
                                   MaterialPageRoute(
-                                    builder: (_) => const LoginScreen(registeredPassword: '', registeredEmail: '',),
+                                    builder: (_) => const LoginScreen(
+                                      registeredPassword: '',
+                                      registeredEmail: '',
+                                    ),
                                   ),
                                 );
                               },

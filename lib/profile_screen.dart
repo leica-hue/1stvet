@@ -8,7 +8,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
-// Import necessary screens (assuming these paths are correct)
+// Import necessary screens
 import 'login_screen.dart';
 import 'settings_screen.dart';
 import 'user_prefs.dart';
@@ -18,6 +18,8 @@ import 'appointments_screen.dart';
 import 'patients_list_screen.dart';
 import 'analytics_screen.dart';
 import 'feedback_screen.dart';
+// 🎯 REQUIRED: Import the new pricing screen
+import 'PricingManagementScreen.dart'; 
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -39,13 +41,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final _firestore = FirebaseFirestore.instance;
   String get currentUserId => _auth.currentUser?.uid ?? '';
 
-  // FIX 1: Introduce a constant for the unselected placeholder.
   static const String _specializationPlaceholder = 'Select Specialization';
-
-  // FIX 2: Initialize specialization with the placeholder.
   String specialization = _specializationPlaceholder;
   
-  // FIX 3: Add the placeholder to the list of available specializations.
   List<String> specializations = [
     _specializationPlaceholder, 
     'Pathology',
@@ -54,11 +52,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     'General'
   ];
 
-  // This is used ONLY for immediate file preview on non-web platforms
   File? _localProfileImageFile; 
   String _profileImageUrl = '';
   bool _isSaving = false;
-  bool _isLoading = true; // Use a dedicated loading state
+  bool _isLoading = true; 
 
   // --- Initial Profile Loading Logic ---
   @override
@@ -67,42 +64,49 @@ class _ProfileScreenState extends State<ProfileScreen> {
     _loadProfile();
   }
 
-  // NOTE: This function also retrieves the current _profileImageUrl for error recovery.
-Future<void> _loadProfile() async {
-  if (currentUserId.isEmpty) {
-    if (mounted) setState(() => _isLoading = false);
-    return;
+  @override
+  void dispose() {
+    nameController.dispose();
+    licenseController.dispose();
+    emailController.dispose();
+    locationController.dispose();
+    clinicController.dispose();
+    super.dispose();
   }
 
-  try {
-    final userDoc = await _firestore.collection('vets').doc(currentUserId).get();
-
-    if (userDoc.exists) {
-      final data = userDoc.data()!;
-      nameController.text = data['name'] ?? 'Dr. Sarah Doe';
-      licenseController.text = data['license'] ?? '';
-      emailController.text = data['email'] ?? (_auth.currentUser?.email ?? 'sarah@vetclinic.com');
-      locationController.text = data['location'] ?? '';
-      clinicController.text = data['clinic'] ?? '';
-      
-      // FIX 4: Handle specialization loading
-      final loadedSpec = data['specialization'];
-      specialization = (loadedSpec != null && specializations.contains(loadedSpec))
-          ? loadedSpec
-          : _specializationPlaceholder;
-
-      _profileImageUrl = data['profileImageUrl'] ?? '';
-    } else {
-      // If the user doc does not exist, explicitly set specialization to placeholder
-      specialization = _specializationPlaceholder;
+  Future<void> _loadProfile() async {
+    if (currentUserId.isEmpty) {
+      if (mounted) setState(() => _isLoading = false);
+      return;
     }
-  } catch (e) {
-    print("Error loading profile: $e");
-    specialization = _specializationPlaceholder; // Set placeholder on error
-  } finally {
-    if (mounted) setState(() => _isLoading = false);
+
+    try {
+      final userDoc = await _firestore.collection('vets').doc(currentUserId).get();
+
+      if (userDoc.exists) {
+        final data = userDoc.data()!;
+        nameController.text = data['name'] ?? 'Dr. Sarah Doe';
+        licenseController.text = data['license'] ?? '';
+        emailController.text = data['email'] ?? (_auth.currentUser?.email ?? 'sarah@vetclinic.com');
+        locationController.text = data['location'] ?? '';
+        clinicController.text = data['clinic'] ?? '';
+        
+        final loadedSpec = data['specialization'];
+        specialization = (loadedSpec != null && specializations.contains(loadedSpec))
+            ? loadedSpec
+            : _specializationPlaceholder;
+
+        _profileImageUrl = data['profileImageUrl'] ?? '';
+      } else {
+        specialization = _specializationPlaceholder;
+      }
+    } catch (e) {
+      print("Error loading profile: $e");
+      specialization = _specializationPlaceholder; 
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
-}
 
 
   // --- Save Profile Logic ---
@@ -110,7 +114,6 @@ Future<void> _loadProfile() async {
     if (currentUserId.isEmpty) return;
     if (_isSaving) return;
 
-    // Optional: Add a check to prevent saving if the specialization is still the placeholder
     if (specialization == _specializationPlaceholder) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -166,7 +169,7 @@ Future<void> _loadProfile() async {
     }
   }
 
-  // --- Image Picking/Upload Logic (FIXED CATCH BLOCK) ---
+  // --- Image Picking/Upload Logic ---
   Future<void> _pickImage() async {
     if (currentUserId.isEmpty) return;
 
@@ -174,46 +177,39 @@ Future<void> _loadProfile() async {
     final pickedFile = await picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
     if (pickedFile == null) return;
 
-    // Save the current URL before clearing, in case the upload fails.
     final String oldImageUrl = _profileImageUrl;
 
     try {
-      // Temporary UI update for preview/loading
       setState(() {
         if (!kIsWeb) {
-          _localProfileImageFile = File(pickedFile.path); // Set local file for immediate non-web preview
+          _localProfileImageFile = File(pickedFile.path); 
         }
-        _profileImageUrl = ''; // Clear URL temporarily to show the local image/loader/new file preview
+        _profileImageUrl = ''; 
       });
       
-      // 1. Prepare Storage Reference
       final storageRef = FirebaseStorage.instance
           .ref()
           .child('vet_profile_images')
           .child('$currentUserId/profile_${DateTime.now().millisecondsSinceEpoch}.jpg');
 
-      // 2. Upload Task based on Platform
       UploadTask uploadTask;
       if (kIsWeb) {
         final bytes = await pickedFile.readAsBytes();
         uploadTask = storageRef.putData(bytes, SettableMetadata(contentType: 'image/jpeg'));
-        _localProfileImageFile = null; // Ensure local File is not used on web
+        _localProfileImageFile = null;
       } else {
         final file = File(pickedFile.path);
         uploadTask = storageRef.putFile(file, SettableMetadata(contentType: 'image/jpeg'));
       }
 
-      // 3. Wait for upload and get URL
       final snapshot = await uploadTask;
       final downloadUrl = await snapshot.ref.getDownloadURL();
       
-      // Append timestamp to URL to force reload/cache bust
       final finalUrl = "$downloadUrl?${DateTime.now().millisecondsSinceEpoch}"; 
 
-      // 4. Update UI state and Firestore
       setState(() {
         _profileImageUrl = finalUrl;
-        _localProfileImageFile = null; // Clear local file after successful network update
+        _localProfileImageFile = null; 
       });
 
       await _firestore.collection('vets').doc(currentUserId).set({
@@ -237,21 +233,24 @@ Future<void> _loadProfile() async {
         );
       }
       
-      // FIX: Revert state to the previous working image if upload fails
       if (mounted) setState(() {
-        _localProfileImageFile = null; // Clear temporary file
-        _profileImageUrl = oldImageUrl; // Restore the URL of the last successfully uploaded image
+        _localProfileImageFile = null;
+        _profileImageUrl = oldImageUrl;
       });
     }
   }
 
-  // --- Navigation & Helper Widgets (Unchanged) ---
+  // --- Navigation & Helper Widgets ---
 
   void _navigateTo(Widget screen) {
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (_) => screen),
-    );
+    // This uses pushReplacement for sidebar items, which clears the history.
+    // Use regular Navigator.push for the SettingsScreen or PricingManagementScreen 
+    // to allow a back button if they are nested within the Profile's sidebar.
+    if (screen is SettingsScreen || screen is PricingManagementScreen) {
+        Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
+    } else {
+        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => screen));
+    }
   }
 
   Widget _editableField(String label, TextEditingController controller, {bool readOnly = false}) {
@@ -283,8 +282,8 @@ Future<void> _loadProfile() async {
         ),
         child: Row(
           children: [
-            if (icon != null) Icon(icon, color: Colors.white, size: 20),
-            if (icon != null) const SizedBox(width: 12),
+            Icon(icon, color: Colors.white, size: 20),
+            const SizedBox(width: 12),
             Expanded(
               child: Text(
                 title,
@@ -301,11 +300,93 @@ Future<void> _loadProfile() async {
     );
   }
 
-  // --- Build Method (Unchanged) ---
+  // --- Sidebar Widget (No "Manage Rates" button here) ---
+
+  Widget _buildSidebar() {
+    return Container(
+      width: 240,
+      color: const Color(0xFF728D5A),
+      padding: const EdgeInsets.symmetric(vertical: 30, horizontal: 16),
+      child: Column(
+        children: [
+          Center(child: Image.asset('assets/furever2.png', width: 150)),
+          const SizedBox(height: 40),
+          
+          Expanded( // Added Expanded and SingleChildScrollView for potential scrolling
+            child: SingleChildScrollView(
+              child: Column(
+                children: [
+                  _sidebarItem(icon: Icons.person, title: "Profile", selected: true),
+                  const SizedBox(height: 12),
+                  _sidebarItem(
+                    icon: Icons.dashboard,
+                    title: "Dashboard",
+                    onTap: () => _navigateTo(const DashboardScreen()),
+                  ),
+                  const SizedBox(height: 12),
+                  _sidebarItem(
+                    icon: Icons.calendar_today,
+                    title: "Appointments",
+                    onTap: () => _navigateTo(AppointmentsPage(appointmentDoc: null)),
+                  ),
+                  const SizedBox(height: 12),
+                  _sidebarItem(
+                    icon: Icons.analytics,
+                    title: "Analytics",
+                    onTap: () => _navigateTo(const AnalyticsScreen()),
+                  ),
+                  const SizedBox(height: 12),
+                  _sidebarItem(
+                    icon: Icons.pets,
+                    title: "Patients",
+                    onTap: () => _navigateTo(const PatientHistoryScreen()),
+                  ),
+                  const SizedBox(height: 12),
+                  _sidebarItem(
+                    icon: Icons.feedback,
+                    title: "Feedback",
+                    onTap: () => _navigateTo(const VetFeedbackScreen()),
+                  ),
+                  const SizedBox(height: 12),
+                  // The "Manage Rates" button is REMOVED from here.
+                ],
+              ),
+            ),
+          ),
+          
+          const SizedBox(height: 24),
+          _sidebarItem(
+            icon: Icons.settings,
+            title: "Settings",
+            onTap: () => _navigateTo(const SettingsScreen()),
+          ),
+          const SizedBox(height: 12),
+          _sidebarItem(
+            icon: Icons.logout,
+            title: "Logout",
+            onTap: () async {
+              await UserPrefs.clearLoggedIn();
+              if (!mounted) return;
+              // Clears all navigation history and goes to login screen
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(
+                  builder: (_) =>
+                      const LoginScreen(registeredEmail: '', registeredPassword: ''),
+                ),
+                (route) => false,
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+  
+  // --- Main Build Method ---
 
   @override
   Widget build(BuildContext context) {
-    // If data is still loading, show a centered spinner
     if (_isLoading) {
       return const Scaffold(
         body: Center(child: CircularProgressIndicator(color: Color(0xFF728D5A))),
@@ -346,76 +427,7 @@ Future<void> _loadProfile() async {
     );
   }
 
-  // --- Extracted Widgets (Unchanged) ---
-
-  Widget _buildSidebar() {
-    return Container(
-      width: 240,
-      color: const Color(0xFF728D5A),
-      padding: const EdgeInsets.symmetric(vertical: 30, horizontal: 16),
-      child: Column(
-        children: [
-          Center(child: Image.asset('assets/furever2.png', width: 150)),
-          const SizedBox(height: 40),
-          _sidebarItem(icon: Icons.person, title: "Profile", selected: true),
-          const SizedBox(height: 12),
-          _sidebarItem(
-            icon: Icons.dashboard,
-            title: "Dashboard",
-            onTap: () => _navigateTo(const DashboardScreen()),
-          ),
-          const SizedBox(height: 12),
-          _sidebarItem(
-            icon: Icons.calendar_today,
-            title: "Appointments",
-            onTap: () => _navigateTo(AppointmentsPage(appointmentDoc: null)),
-          ),
-          const SizedBox(height: 12),
-          _sidebarItem(
-            icon: Icons.analytics,
-            title: "Analytics",
-            onTap: () => _navigateTo(const AnalyticsScreen()),
-          ),
-          const SizedBox(height: 12),
-          _sidebarItem(
-            icon: Icons.pets,
-            title: "Patients",
-            onTap: () => _navigateTo(const PatientHistoryScreen()),
-          ),
-          const SizedBox(height: 12),
-          _sidebarItem(
-            icon: Icons.feedback,
-            title: "Feedback",
-            onTap: () => _navigateTo(const VetFeedbackScreen()),
-          ),
-          const Spacer(),
-          const SizedBox(height: 12),
-          _sidebarItem(
-            icon: Icons.settings,
-            title: "Settings",
-            onTap: () => _navigateTo(const SettingsScreen()),
-          ),
-          const SizedBox(height: 12),
-          _sidebarItem(
-            icon: Icons.logout,
-            title: "Logout",
-            onTap: () async {
-              await UserPrefs.clearLoggedIn();
-              if (!mounted) return;
-              Navigator.pushAndRemoveUntil(
-                context,
-                MaterialPageRoute(
-                  builder: (_) =>
-                      const LoginScreen(registeredEmail: '', registeredPassword: ''),
-                ),
-                (route) => false,
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
+  // --- Extracted Widgets ---
 
   Widget _buildHeader() {
     return Container(
@@ -503,7 +515,7 @@ Future<void> _loadProfile() async {
                 const SizedBox(height: 20),
                 _editableField("License Number", licenseController),
                 const SizedBox(height: 20),
-                // Email field is often read-only for security
+                // Email field is read-only
                 _editableField("Email (Read-Only)", emailController, readOnly: true), 
                 const SizedBox(height: 20),
                 _editableField("Location", locationController),
@@ -536,10 +548,11 @@ Future<void> _loadProfile() async {
 
           const SizedBox(width: 40),
 
-          // Specialization Dropdown
+          // Specialization Dropdown and New Button
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // 1. Specialization Dropdown
               Container(
                 width: 200,
                 padding: const EdgeInsets.all(18),
@@ -559,10 +572,7 @@ Future<void> _loadProfile() async {
                     DropdownButton<String>(
                       value: specialization,
                       isExpanded: true,
-                      // Hide the underline to make the dropdown cleaner
                       underline: Container(), 
-                      // FIX 5: Filter out the placeholder from the items list 
-                      // if you don't want it to be selectable after choosing a real value
                       items: specializations
                           .map((spec) => DropdownMenuItem(
                                 value: spec,
@@ -570,15 +580,38 @@ Future<void> _loadProfile() async {
                               ))
                           .toList(),
                       onChanged: (value) {
-                        // Only allow setting a value if it's a valid specialization
-                        if (value != null && value != _specializationPlaceholder) {
+                        if (value != null) {
                           setState(() => specialization = value);
-                        } else if (value == _specializationPlaceholder) {
-                           setState(() => specialization = _specializationPlaceholder);
                         }
                       },
                     ),
                   ],
+                ),
+              ),
+              
+              const SizedBox(height: 20), // Spacing between specialization and button
+
+              // 2. 🎯 NEW: Manage Rates Button (Below Specialization)
+              SizedBox(
+                width: 200,
+                child: ElevatedButton.icon(
+                  onPressed: () => _navigateTo(const PricingManagementScreen()),
+                  icon: const Icon(Icons.currency_exchange, size: 20),
+                  label: const Text(
+                    "Manage Rates",
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                    ),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFEAF086),
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(vertical: 15, horizontal: 10),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -606,20 +639,18 @@ Future<void> _loadProfile() async {
         width: 120,
         height: 120,
         fit: BoxFit.cover,
-        // The placeholder shows while loading
         placeholder: (_, __) => const Center(child: CircularProgressIndicator(strokeWidth: 2.0)),
-        // The error widget shows on network retrieval failure (this is what you were seeing)
         errorWidget: (_, __, ___) => Container(
-          color: Colors.white, // Use white background for error
+          color: Colors.white,
           child: const Icon(
-            Icons.error_outline,
+            Icons.broken_image, // Changed to a less alarming icon for a profile
             size: 60,
-            color: Colors.redAccent, 
+            color: Colors.grey, 
           ), 
         ), 
       );
     } else {
-      // 3. Default/Placeholder Icon (When no picture has ever been uploaded)
+      // 3. Default/Placeholder Icon
       imageWidget = const Icon(
         Icons.person,
         size: 60,

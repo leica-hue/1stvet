@@ -340,17 +340,6 @@ Future<String?> _showNewPasswordDialog() async {
             ),
           ),
           ListTile(
-            leading: Icon(_isInactive ? Icons.toggle_off : Icons.toggle_on),
-            title: Text(_isInactive ? 'Reactivate Account' : 'Deactivate Account'),
-            onTap: () => _confirmAction(
-              _isInactive ? 'Reactivate Account' : 'Deactivate Account',
-              _isInactive
-                  ? 'Do you want to reactivate your account? This will make you available for bookings.'
-                  : 'Do you want to deactivate your account? You will be marked as unavailable.',
-              () => _setInactive(!_isInactive),
-            ),
-          ),
-          ListTile(
             leading: const Icon(Icons.delete_forever),
             title: const Text('Delete Account'),
             onTap: () => _confirmAction(

@@ -73,6 +73,9 @@ flutter:
   assets:
     - assets/google_icon.png
     - assets/furever2.png
+    - assets/cat.png
+    - assets/dog.png
+    - assets/default_profile.png
   fonts:
     - family: Inter
       fonts: 

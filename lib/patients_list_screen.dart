@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-// 🎯 CRITICAL: Import the VetHistoryNotesScreen
-import 'vet_history_notes_screen.dart'; 
+import 'vet_history_notes_screen.dart';
+import 'dart:async'; // Import for StreamSubscription
 
 class PatientHistoryScreen extends StatefulWidget {
   const PatientHistoryScreen({super.key});
@@ -18,18 +18,35 @@ class _PatientHistoryScreenState extends State<PatientHistoryScreen> {
   final _firestore = FirebaseFirestore.instance;
   final _auth = FirebaseAuth.instance;
 
+  final TextEditingController _searchController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
+
   String searchQuery = "";
   bool sortDescending = true;
-  final TextEditingController _searchController = TextEditingController();
 
-  // Helper to format Timestamp
+  // --- New State Variables for Data Caching and Stream Subscription ---
+  Map<String, dynamic> _petMap = {};
+  List<Map<String, dynamic>> _filteredAppointments = [];
+  List<Map<String, dynamic>> _allAppointments = [];
+  StreamSubscription? _petSubscription;
+  StreamSubscription? _appointmentSubscription;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _searchController.addListener(_onSearchChanged);
+    _fetchAndListenForData();
+  }
+
+  // --- Helper Methods ---
+
   String _formatDate(Timestamp? timestamp) {
     if (timestamp == null) return "-";
     final date = timestamp.toDate().toLocal();
     return DateFormat('yyyy-MM-dd HH:mm').format(date);
   }
 
-  // Helper to get color for status
   Color _getStatusColor(String status) {
     switch (status.toLowerCase()) {
       case 'completed':
@@ -43,35 +60,157 @@ class _PatientHistoryScreenState extends State<PatientHistoryScreen> {
     }
   }
 
-  // Helper to format list of concerns
   String _formatMedicalConcerns(dynamic concerns) {
     if (concerns is List && concerns.isNotEmpty) {
       return concerns.join(', ');
     }
-    // If medicalConcerns is an object like in the screenshot's array field structure
     if (concerns is Map && concerns.isNotEmpty) {
       return concerns.values.map((v) => v['name'] ?? v).join(', ');
     }
     return 'None';
   }
 
-  // 🎯 NEW: Function to navigate to VetHistoryNotesScreen
   void _onViewNotes(String appointmentId, String petName) {
     Navigator.push(
       context,
       MaterialPageRoute(
-        // Assuming VetHistoryNotesScreen takes the appointmentId to load/update notes
-        builder: (context) => VetHistoryNotesScreen(
+        builder: (_) => VetHistoryNotesScreen(
           appointmentId: appointmentId,
-          patientName: petName, // Optional, but nice for the screen title
+          patientName: petName,
         ),
       ),
     );
   }
 
+  void _onSearchChanged() {
+    // Debounce is optional but recommended for performance on fast typing
+    // For simplicity, we call _applyFilterAndSort directly.
+    _applyFilterAndSort();
+  }
+
+  void _toggleSort() {
+    setState(() {
+      sortDescending = !sortDescending;
+      _applyFilterAndSort(); // Re-apply filter and sort
+    });
+  }
+  
+  // --- Data Fetching and Processing ---
+
+  void _fetchAndListenForData() async {
+    final currentUser = _auth.currentUser;
+    if (currentUser == null) {
+      setState(() => _isLoading = false);
+      return;
+    }
+    final vetId = currentUser.uid;
+
+    // 1. Fetch and listen for all petInfos once
+    _petSubscription = _firestore.collection('petInfos').snapshots().listen((petSnapshot) {
+      _petMap = {
+        for (var doc in petSnapshot.docs)
+          doc.id: doc.data() as Map<String, dynamic>,
+      };
+      // Once pet data is loaded, check if we can process appointments
+      if (_allAppointments.isNotEmpty || _isLoading) {
+        _processAppointments();
+      }
+    }, onError: (error) {
+      // Handle error
+      if (mounted) setState(() => _isLoading = false);
+    });
+
+    // 2. Fetch and listen for appointments
+    _appointmentSubscription = _firestore
+        .collection('user_appointments')
+        .where('vetId', isEqualTo: vetId)
+        // Note: The ordering here is for the initial data fetch, but we will
+        // re-sort locally based on user preference.
+        .orderBy('appointmentDateTime', descending: true) 
+        .snapshots()
+        .listen((appointmentSnapshot) {
+      _allAppointments = appointmentSnapshot.docs.map((appDoc) {
+        final appData = appDoc.data() as Map<String, dynamic>;
+        final petId = appData['petDocId'] ?? appData['petId'] ?? '';
+        final petData = _petMap[petId] ?? {}; // Use the cached pet map
+        
+        // Combine data for processing
+        return {
+          'Appointment ID': appDoc.id,
+          'Appointment Date': appData['appointmentDateTime'],
+          'Owner': appData['userName'] ?? 'N/A',
+          'Purpose': appData['reason'] ?? appData['appointmentType'] ?? 'N/A',
+          'Status': appData['status'] ?? 'Pending',
+          'Vet Notes': appData['vetNotes'] ?? 'N/A',
+          'Patient Name': petData['name'] ?? 'N/A',
+          'Species': petData['speciesType'] ?? 'N/A',
+          'Breed': petData['breed'] ?? 'N/A',
+          'Sex': petData['gender'] ?? 'N/A',
+          'Spayed/Neutered': petData['spayedNeutered'] ?? 'N/A',
+          'Weight': petData['weight'] ?? 'N/A',
+          'Medical Concerns': _formatMedicalConcerns(petData['medicalConcerns']),
+          'Record Created': petData['createdAt'],
+          'Record Updated': petData['updatedAt'],
+          'Image': petData['imageAsset'] ?? petData['imageUrl'] ?? '',
+        };
+      }).toList();
+
+      _processAppointments();
+    }, onError: (error) {
+      // Handle error
+      if (mounted) setState(() => _isLoading = false);
+    });
+  }
+
+  void _processAppointments() {
+    if (!mounted) return;
+    
+    // Set isLoading to false only after data has potentially arrived
+    if (_isLoading) {
+      setState(() {
+        _isLoading = false;
+      });
+    }
+
+    // Now call the filtering and sorting logic
+    _applyFilterAndSort();
+  }
+
+  void _applyFilterAndSort() {
+    if (!mounted) return;
+
+    final query = _searchController.text.toLowerCase();
+    
+    // 1. Filter
+    final filtered = _allAppointments.where((data) {
+      final petName = (data['Patient Name'] as String).toLowerCase();
+      final date = data['Appointment Date'];
+      final dateStr = date is Timestamp ? _formatDate(date) : date.toString();
+      return petName.contains(query) || dateStr.toLowerCase().contains(query);
+    }).toList();
+
+    // 2. Sort
+    filtered.sort((a, b) {
+      final dateA = (a['Appointment Date'] as Timestamp?)?.toDate().millisecondsSinceEpoch ?? 0;
+      final dateB = (b['Appointment Date'] as Timestamp?)?.toDate().millisecondsSinceEpoch ?? 0;
+      return sortDescending ? dateB.compareTo(dateA) : dateA.compareTo(dateB);
+    });
+
+    // 3. Update state only with the final results
+    setState(() {
+      searchQuery = query; // Update state variable for accurate display
+      _filteredAppointments = filtered;
+    });
+  }
+
+
   @override
   void dispose() {
+    _searchController.removeListener(_onSearchChanged);
     _searchController.dispose();
+    _scrollController.dispose();
+    _petSubscription?.cancel();
+    _appointmentSubscription?.cancel();
     super.dispose();
   }
 
@@ -79,7 +218,6 @@ class _PatientHistoryScreenState extends State<PatientHistoryScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final currentUser = _auth.currentUser;
-
     if (currentUser == null) {
       return Scaffold(
         body: Center(
@@ -90,7 +228,8 @@ class _PatientHistoryScreenState extends State<PatientHistoryScreen> {
         ),
       );
     }
-
+    
+    // ... UI elements (Header and Search/Sort) remain the same ...
     return Scaffold(
       backgroundColor: Colors.grey[50],
       body: Column(
@@ -119,7 +258,7 @@ class _PatientHistoryScreenState extends State<PatientHistoryScreen> {
             ),
           ),
 
-          // Search and Sort (Kept for functionality)
+          // Search + Sort
           Container(
             color: Colors.white,
             width: double.infinity,
@@ -142,25 +281,14 @@ class _PatientHistoryScreenState extends State<PatientHistoryScreen> {
                         borderRadius: BorderRadius.circular(10),
                         borderSide: BorderSide(color: primaryGreen, width: 1.5),
                       ),
-                      contentPadding: const EdgeInsets.symmetric(
-                        vertical: 12,
-                        horizontal: 16,
-                      ),
+                      contentPadding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
                     ),
-                    onChanged: (value) {
-                      setState(() {
-                        searchQuery = value.toLowerCase();
-                      });
-                    },
+                    // Removed onChanged: it's now handled by the listener in initState
                   ),
                 ),
                 const SizedBox(width: 10),
                 IconButton(
-                  onPressed: () {
-                    setState(() {
-                      sortDescending = !sortDescending;
-                    });
-                  },
+                  onPressed: _toggleSort, // Call the new toggle method
                   icon: Icon(
                     sortDescending ? Icons.arrow_downward : Icons.arrow_upward,
                     color: primaryGreen,
@@ -172,211 +300,84 @@ class _PatientHistoryScreenState extends State<PatientHistoryScreen> {
 
           const Divider(height: 1, color: Colors.grey),
 
-          // Data Table
+          // Main content
           Expanded(
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: StreamBuilder<QuerySnapshot>(
-                stream: _firestore.collection('petInfos').snapshots(),
-                builder: (context, petSnapshot) {
-                  if (petSnapshot.connectionState == ConnectionState.waiting) {
-                    return Center(child: CircularProgressIndicator(color: primaryGreen));
-                  }
+            // Use _isLoading to show initial loading state
+            child: _isLoading
+                ? Center(child: CircularProgressIndicator(color: primaryGreen))
+                : _filteredAppointments.isEmpty
+                    ? Center(
+                        child: Text(
+                          "No matching records found.",
+                          style: theme.textTheme.titleMedium?.copyWith(color: Colors.grey[600]),
+                        ),
+                      )
+                    : ListView.builder(
+                        controller: _scrollController,
+                        padding: const EdgeInsets.all(16),
+                        itemCount: _filteredAppointments.length,
+                        itemBuilder: (context, index) {
+                          final data = _filteredAppointments[index];
+                          final date = data['Appointment Date'];
+                          final formattedDate = date is Timestamp ? _formatDate(date) : date.toString();
+                          final petName = data['Patient Name'] as String;
+                          final status = data['Status'] as String;
+                          final imageUrl = data['Image'] as String?;
+                          String asset = 'assets/default_pet.png';
+                          final species = (data['Species'] as String).toLowerCase();
+                          if (species.contains('dog')) asset = 'assets/dog.png';
+                          if (species.contains('cat')) asset = 'assets/cat.png';
 
-                  final petDocs = petSnapshot.data?.docs ?? [];
-                  
-                  // Map 1: Keyed by the Pet Document ID (e.g., BB9ZQ...) - BEST for linking
-                  final petMapByDocId = <String, Map<String, dynamic>>{};
-                  // Map 2: Keyed by the User ID - Used for fallback/if petId is missing from appointment
-                  final petMapByUserId = <String, Map<String, dynamic>>{};
-
-                  for (var doc in petDocs) {
-                    final petData = doc.data() as Map<String, dynamic>;
-                    
-                    // Populate map by Pet Document ID
-                    petMapByDocId[doc.id] = petData;
-                    
-                    // Populate map by User ID (note: this will overwrite if user has multiple pets)
-                    final userId = petData['userId'] ?? '';
-                    if (userId.isNotEmpty) {
-                      petMapByUserId[userId] = petData;
-                    }
-                  }
-
-                  return StreamBuilder<QuerySnapshot>(
-                    stream: _firestore
-                        .collection('user_appointments')
-                        .orderBy('appointmentDateTime', descending: sortDescending) 
-                        .snapshots(),
-                    builder: (context, appointmentSnapshot) {
-                      if (appointmentSnapshot.connectionState == ConnectionState.waiting) {
-                        return Center(child: CircularProgressIndicator(color: primaryGreen));
-                      }
-
-                      final appointmentDocs = appointmentSnapshot.data?.docs ?? [];
-                      if (appointmentDocs.isEmpty) {
-                        return Center(
-                          child: Text(
-                            "No appointments found.",
-                            style: theme.textTheme.titleMedium?.copyWith(color: Colors.grey[600]),
-                          ),
-                        );
-                      }
-
-                      final combinedDocs = appointmentDocs.map((appDoc) {
-                        final appData = appDoc.data() as Map<String, dynamic>;
-
-                        // 🎯 CRITICAL FIX: Determine which ID to use to fetch Pet Data
-                        final petDocIdInAppointment = appData['petDocId'] ?? appData['petId'] ?? ''; 
-                        final userId = appData['userId'] ?? '';
-                        
-                        final petData = petMapByDocId[petDocIdInAppointment] ?? petMapByUserId[userId] ?? {};
-
-                        return {
-                          // Appointment Fields
-                          'Appointment ID': appDoc.id, // For true deduplication if needed
-                          'Appointment Date': appData['appointmentDateTime'],
-                          'Owner Info': appData['userName'] ?? 'N/A',
-                          'Purpose': appData['reason'] ?? appData['appointmentType'] ?? 'N/A',
-                          'Status': appData['status'] ?? 'Pending',
-                          'Vet Notes': appData['vetNotes'] ?? 'N/A',
-                          
-                          // PetInfo Fields (Now guaranteed to be the correct pet IF the link exists)
-                          'Patient Name': petData['name'] ?? 'N/A', // Using name from petData as primary
-                          'Species': petData['speciesType'] ?? 'N/A',
-                          'Breed': petData['breed'] ?? 'N/A',
-                          'Sex': petData['gender'] ?? 'N/A',
-                          'Spayed/Neutered': petData['spayedNeutered'] ?? 'N/A',
-                          'Weight': petData['weight'] ?? 'N/A',
-                          'Medical Concerns': _formatMedicalConcerns(petData['medicalConcerns']),
-                          'Record Created': petData['createdAt'],
-                          'Record Updated': petData['updatedAt'],
-                          'Image': petData['imageAsset'] ?? petData['imageUrl'] ?? '',
-                        };
-                      }).where((data) {
-                        final name = (data['Patient Name'] as String).toLowerCase();
-                        final date = data['Appointment Date'];
-                        final dateString =
-                            date is Timestamp ? _formatDate(date) : date.toString();
-                        return name.contains(searchQuery) ||
-                            dateString.toLowerCase().contains(searchQuery);
-                      }).toList();
-
-                      if (combinedDocs.isEmpty) {
-                        return Center(
-                          child: Text(
-                            "No matching records found.",
-                            style: theme.textTheme.titleMedium?.copyWith(color: Colors.grey[600]),
-                          ),
-                        );
-                      }
-
-                      return SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: DataTable(
-                          columnSpacing: 20,
-                          headingRowColor:
-                              MaterialStateProperty.resolveWith((states) => headerColor.withOpacity(0.5)),
-                          // 🎯 NEW COLUMN: Action
-                          columns: const [
-                            DataColumn(label: Text("Patient")),
-                            DataColumn(label: Text("Species")),
-                            DataColumn(label: Text("Breed")),
-                            DataColumn(label: Text("Sex")),
-                            DataColumn(label: Text("Spayed/Neutered")),
-                            DataColumn(label: Text("Weight (kg)")),
-                            DataColumn(label: Text("Medical Concerns")),
-                            DataColumn(label: Text("Owner")),
-                            DataColumn(label: Text("Date & Time")),
-                            DataColumn(label: Text("Purpose")),
-                            DataColumn(label: Text("Status")),
-                            DataColumn(label: Text("Vet Notes")),
-                            DataColumn(label: Text("Pet Record Created")),
-                            DataColumn(label: Text("Pet Record Updated")),
-                            DataColumn(label: Text("Action")), // 🎯 NEW COLUMN
-                          ],
-                          rows: combinedDocs.map((data) {
-                            final formattedAppointmentDate = data['Appointment Date'] is Timestamp
-                                ? _formatDate(data['Appointment Date'] as Timestamp)
-                                : data['Appointment Date'].toString();
-                            
-                            // Formatting new pet date fields
-                            final formattedCreatedDate = data['Record Created'] is Timestamp
-                                ? _formatDate(data['Record Created'] as Timestamp)
-                                : 'N/A';
-                            final formattedUpdatedDate = data['Record Updated'] is Timestamp
-                                ? _formatDate(data['Record Updated'] as Timestamp)
-                                : 'N/A';
-                            
-                            final status = data['Status'] as String;
-                            final imageUrl = data['Image'] as String?;
-                            // 🎯 Get the required IDs
-                            final appointmentId = data['Appointment ID'] as String;
-                            final petName = data['Patient Name'] as String;
-
-                            return DataRow(cells: [
-                              DataCell(Row(
+                          return Card(
+                            margin: const EdgeInsets.symmetric(vertical: 6),
+                            child: Padding(
+                              padding: const EdgeInsets.all(12.0),
+                              child: Row(
                                 children: [
                                   CircleAvatar(
-                                    radius: 18,
-                                    backgroundImage: imageUrl != null && imageUrl.isNotEmpty && !imageUrl.startsWith('assets/') 
+                                    radius: 25,
+                                    backgroundImage: (imageUrl != null && imageUrl.startsWith('http'))
                                         ? NetworkImage(imageUrl)
-                                        : const AssetImage('assets/default_pet.png') as ImageProvider,
-                                    backgroundColor: Colors.grey[200],
+                                        : AssetImage(asset) as ImageProvider,
                                   ),
-                                  const SizedBox(width: 8),
-                                  Text(petName), // Use petName here
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          petName,
+                                          style: const TextStyle(
+                                              fontSize: 16, fontWeight: FontWeight.bold),
+                                        ),
+                                        Text("Species: ${data['Species']} | Breed: ${data['Breed']}"),
+                                        Text("Sex: ${data['Sex']} | Weight: ${data['Weight']}"),
+                                        Text("Owner: ${data['Owner']} | Date: $formattedDate"),
+                                        Text("Purpose: ${data['Purpose']} | Status: $status",
+                                            style: TextStyle(
+                                                color: _getStatusColor(status),
+                                                fontWeight: FontWeight.bold)),
+                                      ],
+                                    ),
+                                  ),
+                                  ElevatedButton.icon(
+                                    onPressed: () => _onViewNotes(
+                                      data['Appointment ID'] as String,
+                                      petName,
+                                    ),
+                                    icon: const Icon(Icons.edit_note, size: 18),
+                                    label: const Text("Notes"),
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: primaryGreen,
+                                      foregroundColor: Colors.white,
+                                    ),
+                                  ),
                                 ],
-                              )),
-                              DataCell(Text(data['Species'] as String)),
-                              DataCell(Text(data['Breed'] as String)),
-                              DataCell(Text(data['Sex'] as String)),
-                              DataCell(Text(data['Spayed/Neutered'] as String)),
-                              DataCell(Text(data['Weight'].toString())),
-                              DataCell(Text(data['Medical Concerns'] as String)),
-                              DataCell(Text(data['Owner Info'] as String)),
-                              DataCell(Text(formattedAppointmentDate)),
-                              DataCell(Text(data['Purpose'] as String)),
-                              DataCell(Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: _getStatusColor(status).withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: Text(
-                                  status,
-                                  style: TextStyle(
-                                    color: _getStatusColor(status),
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              )),
-                              DataCell(Text(data['Vet Notes'] as String)),
-                              DataCell(Text(formattedCreatedDate)),
-                              DataCell(Text(formattedUpdatedDate)),
-                              // 🎯 NEW: Action Button DataCell
-                              DataCell(
-                                ElevatedButton.icon(
-                                  onPressed: () => _onViewNotes(appointmentId, petName),
-                                  icon: const Icon(Icons.edit_note, size: 18),
-                                  label: const Text("Notes"),
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: primaryGreen,
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                                    minimumSize: Size.zero, // Remove fixed height
-                                  ),
-                                ),
                               ),
-                            ]);
-                          }).toList(),
-                        ),
-                      );
-                    },
-                  );
-                },
-              ),
-            ),
+                            ),
+                          );
+                        },
+                      ),
           ),
         ],
       ),
