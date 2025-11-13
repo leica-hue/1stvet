@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/services.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class PricingManagementScreen extends StatefulWidget {
   const PricingManagementScreen({super.key});
@@ -11,10 +12,12 @@ class PricingManagementScreen extends StatefulWidget {
 
 class _PricingManagementScreenState extends State<PricingManagementScreen> {
   final _firestore = FirebaseFirestore.instance;
-  final String _ratesDocId = 'vet_rates';
-  final String _collectionName = 'app_settings';
+  final _auth = FirebaseAuth.instance;
 
-  // 🎯 DEFAULT RATES STRUCTURE - Used for initialization if Firestore is empty
+  String? _currentVetId;
+  String get _collectionName => 'app_settings';
+
+  // 🎯 Default rate structure for initializing new vets
   final Map<String, dynamic> _defaultRates = {
     'consultation_fee_php': 800.00,
     'urgent_surcharge_php': 500.00,
@@ -28,10 +31,15 @@ class _PricingManagementScreenState extends State<PricingManagementScreen> {
     },
   };
 
-  // --- State Management for Text Fields ---
   final Map<String, TextEditingController> _controllers = {};
   final Map<String, String> _originalValues = {};
   final Set<String> _savingFields = {};
+
+  @override
+  void initState() {
+    super.initState();
+    _currentVetId = _auth.currentUser?.uid;
+  }
 
   @override
   void dispose() {
@@ -39,37 +47,37 @@ class _PricingManagementScreenState extends State<PricingManagementScreen> {
     super.dispose();
   }
 
-  // --- Firestore Interaction Methods ---
+  // --- Firestore logic ---
+
+  String get _ratesDocId => 'vet_rates_${_currentVetId ?? "unknown"}';
 
   Stream<DocumentSnapshot> _getRatesStream() {
     return _firestore.collection(_collectionName).doc(_ratesDocId).snapshots();
   }
 
   Future<void> _updatePrice(String field, String value) async {
-    final double? price = double.tryParse(value);
-
-    if (price == null || price < 0) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('Invalid price format. Please enter a valid number.'),
-              backgroundColor: Colors.red),
-        );
-      }
+    if (_currentVetId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No logged-in vet found.'), backgroundColor: Colors.red),
+      );
       return;
     }
 
-    setState(() {
-      _savingFields.add(field);
-    });
+    final double? price = double.tryParse(value);
+    if (price == null || price < 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Invalid price format.'), backgroundColor: Colors.red),
+      );
+      return;
+    }
+
+    setState(() => _savingFields.add(field));
 
     try {
       final Map<String, dynamic> updateData;
       if (field.contains('.')) {
         final parts = field.split('.');
-        updateData = {
-          parts[0]: {parts[1]: price}
-        };
+        updateData = {parts[0]: {parts[1]: price}};
       } else {
         updateData = {field: price};
       }
@@ -77,44 +85,38 @@ class _PricingManagementScreenState extends State<PricingManagementScreen> {
       await _firestore
           .collection(_collectionName)
           .doc(_ratesDocId)
-          .set(updateData, SetOptions(merge: true));
+          .set({
+            'vetId': _currentVetId,
+            'updatedAt': FieldValue.serverTimestamp(),
+            ...updateData,
+          }, SetOptions(merge: true));
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text('${field.split('.').last.replaceAll('_', ' ')} updated to ₱${price.toStringAsFixed(2)}'),
-              backgroundColor: const Color(0xFF6B8E23)),
-        );
-      }
-      // Update the original value after successful save
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${field.split('.').last.replaceAll('_', ' ')} updated to ₱${price.toStringAsFixed(2)}'),
+          backgroundColor: const Color(0xFF6B8E23),
+        ),
+      );
+
       _originalValues[field] = price.toStringAsFixed(2);
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to update price: $e'), backgroundColor: Colors.red),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Failed to update price: $e'), backgroundColor: Colors.red),
+      );
     } finally {
-      if (mounted) {
-        setState(() {
-          _savingFields.remove(field);
-        });
-      }
+      setState(() => _savingFields.remove(field));
     }
   }
 
   String _formatPrice(dynamic price) {
     if (price == null) return '0.00';
-    if (price is num) {
-      return price.toStringAsFixed(2);
-    }
+    if (price is num) return price.toStringAsFixed(2);
     final num? parsed = num.tryParse(price.toString());
     return parsed != null ? parsed.toStringAsFixed(2) : '0.00';
   }
 
-  // --- Widget Builders ---
+  // --- UI Builders ---
 
-  // Refactored for better visual separation and hover effect (if on Web/Desktop)
   Widget _buildPriceInputTile({
     required String title,
     required String subtitle,
@@ -127,17 +129,17 @@ class _PricingManagementScreenState extends State<PricingManagementScreen> {
       _originalValues[firestoreField] = initialValue;
     }
 
-    final TextEditingController controller = _controllers[firestoreField]!;
-    final bool isSaving = _savingFields.contains(firestoreField);
-    final bool isModified = controller.text.isNotEmpty && controller.text != _originalValues[firestoreField];
+    final controller = _controllers[firestoreField]!;
+    final isSaving = _savingFields.contains(firestoreField);
+    final isModified = controller.text != _originalValues[firestoreField];
 
     return Card(
-      elevation: 4, // Increased elevation for a floating effect
+      elevation: 4,
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16), // Rounded corners
+        borderRadius: BorderRadius.circular(16),
         side: BorderSide(
-          color: isModified ? const Color(0xFFEAF086) : Colors.transparent, // Highlight modified fields
+          color: isModified ? const Color(0xFFEAF086) : Colors.transparent,
           width: 2,
         ),
       ),
@@ -151,7 +153,8 @@ class _PricingManagementScreenState extends State<PricingManagementScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 17, color: Colors.black87)),
+                  Text(title,
+                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 17, color: Colors.black87)),
                   const SizedBox(height: 4),
                   Text(subtitle, style: TextStyle(color: Colors.grey[600], fontSize: 13)),
                 ],
@@ -159,12 +162,12 @@ class _PricingManagementScreenState extends State<PricingManagementScreen> {
             ),
             const SizedBox(width: 15),
             SizedBox(
-              width: 120, // Increased width for better input visibility
+              width: 120,
               child: TextField(
                 controller: controller,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 textAlign: TextAlign.right,
-                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: Color(0xFF6B8E23)), // Prominent text style
+                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: Color(0xFF6B8E23)),
                 inputFormatters: [
                   FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')),
                 ],
@@ -172,12 +175,10 @@ class _PricingManagementScreenState extends State<PricingManagementScreen> {
                   prefixText: '₱ ',
                   border: InputBorder.none,
                   filled: true,
-                  fillColor: Colors.grey[50], // Slight background for input
+                  fillColor: Colors.grey[50],
                   contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                 ),
-                onChanged: (_) {
-                  setState(() {}); 
-                },
+                onChanged: (_) => setState(() {}),
               ),
             ),
             SizedBox(
@@ -192,9 +193,8 @@ class _PricingManagementScreenState extends State<PricingManagementScreen> {
                     )
                   : (isModified
                       ? IconButton(
-                          icon: const Icon(Icons.check_circle, color: Color(0xFF6B8E23), size: 28), // Check icon for saving
+                          icon: const Icon(Icons.check_circle, color: Color(0xFF6B8E23), size: 28),
                           onPressed: () => _updatePrice(firestoreField, controller.text),
-                          tooltip: 'Save Rate',
                         )
                       : const SizedBox.shrink()),
             ),
@@ -211,7 +211,7 @@ class _PricingManagementScreenState extends State<PricingManagementScreen> {
     required String baseFirestoreField,
     IconData icon = Icons.category_outlined,
   }) {
-    final average = rates.values.fold<double>(0.0, (sum, item) => sum + (item as num).toDouble()) / rates.length;
+    final average = rates.values.fold<double>(0.0, (sum, v) => sum + (v as num).toDouble()) / rates.length;
 
     return Card(
       elevation: 4,
@@ -221,9 +221,9 @@ class _PricingManagementScreenState extends State<PricingManagementScreen> {
         tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         leading: Icon(icon, color: const Color(0xFF728D5A), size: 32),
         title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 17, color: Colors.black87)),
-        subtitle: Text('Average Rate: ₱${average.toStringAsFixed(2)}. $subtitle', style: TextStyle(color: Colors.grey[600], fontSize: 13)),
+        subtitle: Text('Average Rate: ₱${average.toStringAsFixed(2)}. $subtitle',
+            style: TextStyle(color: Colors.grey[600], fontSize: 13)),
         childrenPadding: const EdgeInsets.only(left: 20, right: 20, top: 8, bottom: 12),
-        
         children: rates.entries.map((entry) {
           final tierKey = entry.key;
           final fullField = '$baseFirestoreField.$tierKey';
@@ -234,9 +234,9 @@ class _PricingManagementScreenState extends State<PricingManagementScreen> {
             _originalValues[fullField] = tierPrice;
           }
 
-          final TextEditingController controller = _controllers[fullField]!;
-          final bool isSaving = _savingFields.contains(fullField);
-          final bool isModified = controller.text.isNotEmpty && controller.text != _originalValues[fullField];
+          final controller = _controllers[fullField]!;
+          final isSaving = _savingFields.contains(fullField);
+          final isModified = controller.text != _originalValues[fullField];
 
           return Container(
             margin: const EdgeInsets.only(bottom: 8.0),
@@ -253,7 +253,6 @@ class _PricingManagementScreenState extends State<PricingManagementScreen> {
                     style: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF728D5A), fontSize: 14),
                   ),
                 ),
-                const SizedBox(width: 10),
                 SizedBox(
                   width: 100,
                   child: TextField(
@@ -269,9 +268,7 @@ class _PricingManagementScreenState extends State<PricingManagementScreen> {
                       border: InputBorder.none,
                       contentPadding: EdgeInsets.zero,
                     ),
-                    onChanged: (_) {
-                      setState(() {});
-                    },
+                    onChanged: (_) => setState(() {}),
                   ),
                 ),
                 SizedBox(
@@ -288,7 +285,6 @@ class _PricingManagementScreenState extends State<PricingManagementScreen> {
                           ? IconButton(
                               icon: const Icon(Icons.check_circle_outline, color: Color(0xFF6B8E23)),
                               onPressed: () => _updatePrice(fullField, controller.text),
-                              tooltip: 'Save Rate',
                             )
                           : const SizedBox.shrink()),
                 ),
@@ -300,12 +296,17 @@ class _PricingManagementScreenState extends State<PricingManagementScreen> {
     );
   }
 
-  // --- Main Build Method ---
-
+  // --- Main UI ---
   @override
   Widget build(BuildContext context) {
+    if (_currentVetId == null) {
+      return const Scaffold(
+        body: Center(child: Text('⚠️ Please log in as a vet to manage your pricing.')),
+      );
+    }
+
     return Scaffold(
-      backgroundColor: const Color(0xFFF8F9F5), // Light off-white background
+      backgroundColor: const Color(0xFFF8F9F5),
       appBar: AppBar(
         backgroundColor: const Color(0xFFBDD9A4),
         title: const Text('Service & Pricing Management 💰',
@@ -313,100 +314,77 @@ class _PricingManagementScreenState extends State<PricingManagementScreen> {
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.black87),
       ),
-      body: Center( // 🎯 CRITICAL: Centered the entire body content
-        child: ConstrainedBox( // 🎯 CRITICAL: Constrained width for professional desktop look
+      body: Center(
+        child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 900),
           child: StreamBuilder<DocumentSnapshot>(
             stream: _getRatesStream(),
             builder: (context, snapshot) {
               if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    CircularProgressIndicator(color: Color(0xFF728D5A)),
-                    SizedBox(height: 10),
-                    Text("Loading latest rates from cloud..."),
-                  ],
-                );
+                return const Center(child: CircularProgressIndicator(color: Color(0xFF728D5A)));
               }
+
               if (snapshot.hasError) {
                 return Center(child: Text('❌ Error loading rates: ${snapshot.error}'));
               }
 
-              // 1. Get data from snapshot or use defaults
               final Map<String, dynamic> snapshotData = snapshot.data?.data() as Map<String, dynamic>? ?? {};
-              final Map<String, dynamic> ratesData = snapshotData.isNotEmpty ? snapshotData : _defaultRates;
+              final ratesData = snapshotData.isNotEmpty ? snapshotData : _defaultRates;
 
-              // 2. Initialize Firebase with defaults if the document was missing
               if (snapshotData.isEmpty && snapshot.data?.exists == false) {
-                 WidgetsBinding.instance.addPostFrameCallback((_) {
-                   _firestore.collection(_collectionName).doc(_ratesDocId).set(_defaultRates, SetOptions(merge: true));
-                 });
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  _firestore.collection(_collectionName).doc(_ratesDocId).set(_defaultRates);
+                });
               }
 
-              // 3. Extract Fixed Rates
               final consultFee = _formatPrice(ratesData['consultation_fee_php']);
               final urgentSurcharge = _formatPrice(ratesData['urgent_surcharge_php']);
 
-              // 4. Extract Tiered Rates and ensure they are numbers
-              final Map<String, dynamic> vaccinationRates = ratesData['vaccination_rates'] ?? _defaultRates['vaccination_rates'];
-              vaccinationRates.updateAll((key, value) => value is num ? value : num.tryParse(value.toString()) ?? 0.0);
-              
-              final Map<String, dynamic> dewormingRates = ratesData['deworming_rates'] ?? _defaultRates['deworming_rates'];
-              dewormingRates.updateAll((key, value) => value is num ? value : num.tryParse(value.toString()) ?? 0.0);
-
+              final vaccinationRates =
+                  (ratesData['vaccination_rates'] ?? _defaultRates['vaccination_rates']) as Map<String, dynamic>;
+              final dewormingRates =
+                  (ratesData['deworming_rates'] ?? _defaultRates['deworming_rates']) as Map<String, dynamic>;
 
               return ListView(
                 children: [
-                  
                   const Padding(
                     padding: EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 8.0),
                     child: Text('Fixed Fees',
                         style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
                   ),
-
-                  // 1. Initial Consultation Fee
                   _buildPriceInputTile(
                     title: 'Initial Consultation Fee',
-                    subtitle: 'The base cost for any new general appointment.',
+                    subtitle: 'Base cost for general appointments.',
                     firestoreField: 'consultation_fee_php',
                     initialValue: consultFee,
                     icon: Icons.monitor_heart_outlined,
                   ),
-
-                  // 2. Urgent Care Surcharge
                   _buildPriceInputTile(
                     title: 'Urgent Care Surcharge',
-                    subtitle: 'Applied automatically for emergency or after-hours requests.',
+                    subtitle: 'Added for emergency or after-hours visits.',
                     firestoreField: 'urgent_surcharge_php',
                     initialValue: urgentSurcharge,
                     icon: Icons.warning_amber_rounded,
                   ),
-
                   const Padding(
                     padding: EdgeInsets.fromLTRB(16.0, 24.0, 16.0, 8.0),
                     child: Text('Tiered Services',
                         style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
                   ),
-
-                  // 3. Routine Vaccination (Tiered)
                   _buildTieredServiceTile(
                     title: 'Routine Vaccination',
-                    subtitle: 'Prices are set based on the species (Dog vs Cat) and vaccine type.',
+                    subtitle: 'Species-based vaccine pricing.',
                     rates: vaccinationRates,
                     baseFirestoreField: 'vaccination_rates',
                     icon: Icons.vaccines_outlined,
                   ),
-                  
-                  // 4. Deworming (New Tiered Service)
                   _buildTieredServiceTile(
                     title: 'Deworming Service',
-                    subtitle: 'Prices are set based on the weight or size of the animal.',
+                    subtitle: 'Based on pet size/weight.',
                     rates: dewormingRates,
                     baseFirestoreField: 'deworming_rates',
                     icon: Icons.bug_report_outlined,
                   ),
-
                   const SizedBox(height: 50),
                 ],
               );
