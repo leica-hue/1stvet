@@ -208,23 +208,24 @@ class _VetHistoryNotesScreenState extends State<VetHistoryNotesScreen> {
                       const SizedBox(height: 20),
 
                       // Save button
-                      SizedBox(
-                        width: double.infinity,
+                      Align(
+                        alignment: Alignment.centerRight,
                         child: ElevatedButton.icon(
                           onPressed: _saveVetNotes,
-                          icon: const Icon(Icons.save),
-                          label: const Text("Save Notes"),
+                          icon: const Icon(Icons.save, size: 18),
+                          label: const Text("Save"),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: primaryGreen,
                             foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 15),
+                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                            textStyle: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
                             shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
+                              borderRadius: BorderRadius.circular(8),
                             ),
-                            textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                           ),
                         ),
                       ),
+
                     ],
                   ),
                 ),
