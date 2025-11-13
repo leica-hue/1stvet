@@ -2,15 +2,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:flutter_application_1/login_screen.dart';
-import 'package:flutter_application_1/settings_screen.dart';
 import 'firebase_options.dart';
 import 'package:table_calendar/table_calendar.dart';
-import 'dashboard_screen.dart';
-import 'patients_list_screen.dart';
-import 'profile_screen.dart';
-import 'feedback_screen.dart';
-import 'analytics_screen.dart';
+import 'common_sidebar.dart';
 
 
 void main() async {
@@ -175,7 +169,7 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
     return Scaffold(
       body: Row(
         children: [
-          _buildSidebar(),
+          const CommonSidebar(currentScreen: 'Appointments'),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -430,89 +424,6 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
     );
   }
 
-  Widget _buildSidebar() {
-    return Container(
-      width: 240,
-      color: const Color(0xFF728D5A),
-      child: Column(
-        children: [
-          const SizedBox(height: 30),
-          Image.asset('assets/furever2.png', width: 140), // 
-          const SizedBox(height: 40),
-          _buildSidebarItem(Icons.person_outline, "Profile"),
-          _buildSidebarItem(Icons.dashboard, "Dashboard"),
-          _buildSidebarItem(Icons.event_note, "Appointments", selected: true),
-          _buildSidebarItem(Icons.analytics, "Analytics"),
-          _buildSidebarItem(Icons.pets, "Patients"),
-          _buildSidebarItem(Icons.feedback_outlined, "Feedback"),
-          const Spacer(),
-          _buildSidebarItem(Icons.settings, "Settings"),
-          _buildSidebarItem(Icons.logout, "Logout"),
-        ],
-      ),
-    );
-  }
-    // _joinOnlineConsultation method removed.
-
-  Widget _buildSidebarItem(IconData icon, String title, {bool selected = false}) {
-    return InkWell(
-      onTap: () {
-        if (title == "Dashboard") {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const DashboardScreen()),
-          );
-        } else if (title == "Patients") {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const PatientHistoryScreen()),
-          );
-        } else if (title == "Analytics") {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const AnalyticsScreen()),
-          );
-        } else if (title == "Profile") {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const ProfileScreen()),
-          );
-        } else if (title == "Feedback") {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const VetFeedbackScreen()),
-          );
-        } else if (title == "Settings") {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const SettingsScreen()),
-          );
-        } else if (title == "Logout") {
-          FirebaseAuth.instance.signOut();
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (_) => const LoginScreen(registeredEmail: '', registeredPassword: '')),
-          );
-        }
-      },
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
-        color: selected ? const Color(0xFF5C7449) : Colors.transparent,
-        child: Row(
-          children: [
-            Icon(icon, color: Colors.white, size: 22),
-            const SizedBox(width: 14),
-            Text(title,
-                style: TextStyle(
-                    color: Colors.white,
-                    fontWeight:
-                        selected ? FontWeight.bold : FontWeight.normal)),
-          ],
-        ),
-      ),
-    );
-  }
 
   Widget _buildCalendarSection(List<DateTime> bookedDates) {
     return Container(

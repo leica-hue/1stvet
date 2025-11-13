@@ -4,14 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
-import 'analytics_screen.dart';
-import 'feedback_screen.dart';
 import 'appointments_screen.dart';
 import 'profile_screen.dart';
-import 'login_screen.dart';
-import 'settings_screen.dart' hide LoginScreen;
-import 'patients_list_screen.dart';
 import 'user_prefs.dart'; // Assuming this file contains the UserPrefs.loadProfile logic
+import 'common_sidebar.dart';
 
 // --- Appointment Class (No Changes Needed) ---
 class Appointment {
@@ -326,42 +322,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  Future<void> _handleSidebarTap(String label) async {
-    switch (label) {
-      case 'Profile':
-        await Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen()));
-        // Reload all data after returning from profile
-        await _loadAllData(); 
-        break;
-      case 'Appointments':
-        await Navigator.push(context, MaterialPageRoute(builder: (_) => AppointmentsPage(appointmentDoc: null)));
-        await _loadAppointments();
-        break;
-      case 'Analytics':
-        await Navigator.push(context, MaterialPageRoute(builder: (_) => const AnalyticsScreen()));
-        await _loadAppointments();
-        break;
-      case 'Feedback':
-        await Navigator.push(context, MaterialPageRoute(builder: (_) => const VetFeedbackScreen()));
-        break;
-      case 'Settings':
-        await Navigator.push(context, MaterialPageRoute(builder: (_) => const SettingsScreen()));
-        break;
-      case 'Patients':
-        await Navigator.push(context, MaterialPageRoute(builder: (_) => const PatientHistoryScreen()));
-        break;
-      case 'Log out':
-        await FirebaseAuth.instance.signOut();
-        await UserPrefs.clearLoggedIn();
-        if (!mounted) return;
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(builder: (_) => const LoginScreen(registeredEmail: '', registeredPassword: '')),
-          (route) => false,
-        );
-        break;
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -377,26 +337,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Sidebar
-          Container(
-            width: 220,
-            color: const Color(0xFF728D5A),
-            padding: const EdgeInsets.symmetric(vertical: 30),
-            child: Column(
-              children: [
-                Image.asset('assets/furever2.png', width: 140),
-                const SizedBox(height: 40),
-                _buildSidebarItem('Profile', icon: Icons.person),
-                _buildSidebarItem('Dashboard', icon: Icons.dashboard, selected: true),
-                _buildSidebarItem('Appointments', icon: Icons.event),
-                _buildSidebarItem('Analytics', icon: Icons.analytics),
-                _buildSidebarItem('Patients', icon: Icons.pets),
-                _buildSidebarItem('Feedback', icon: Icons.feedback_outlined),
-                const Spacer(),
-                _buildSidebarItem('Settings', icon: Icons.settings),
-                _buildSidebarItem('Log out', icon: Icons.logout),
-              ],
-            ),
-          ),
+          const CommonSidebar(currentScreen: 'Dashboard'),
 
           // Main content
           Expanded(
@@ -694,34 +635,4 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
-  Widget _buildSidebarItem(String label, {IconData? icon, bool selected = false}) {
-    return InkWell(
-      onTap: () => _handleSidebarTap(label),
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 4, horizontal: 12),
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
-        decoration: BoxDecoration(
-          color: selected ? Colors.white24 : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
-          children: [
-            if (icon != null) Icon(icon, color: Colors.white, size: 20),
-            if (icon != null) const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                label,
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: selected ? FontWeight.bold : FontWeight.w500,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }

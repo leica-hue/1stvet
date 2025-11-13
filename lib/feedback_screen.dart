@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'dart:async'; // IMPORTED for Timer
+import 'common_sidebar.dart';
 
 class VetFeedbackScreen extends StatefulWidget {
   const VetFeedbackScreen({super.key});
@@ -165,45 +166,44 @@ void _onSearchChanged(String query) {
         // Now build the main UI with the Scaffold
         return Scaffold(
           backgroundColor: Colors.grey.shade100,
-          body: Column(
+          body: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 🟢 HEADER (Unchanged)
-              Container(
-                decoration: BoxDecoration(
-                  color: headerColor,
-                  borderRadius: const BorderRadius.only(
-                    bottomLeft: Radius.circular(20),
-                    bottomRight: Radius.circular(20),
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.grey.withOpacity(0.3),
-                      spreadRadius: 2,
-                      blurRadius: 5,
-                      offset: const Offset(0, 3),
-                    ),
-                  ],
-                ),
-                padding: const EdgeInsets.symmetric(vertical: 25, horizontal: 20),
-                child: Row(
+              // Sidebar
+              const CommonSidebar(currentScreen: 'Feedback'),
+              
+              // Main content
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    IconButton(
-                      icon: const Icon(Icons.arrow_back, color: Colors.black87),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                    const SizedBox(width: 8),
-                    const Text(
-                      "Client Feedbacks",
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 26,
-                        color: Colors.black87,
+                    // 🟢 HEADER (Unchanged)
+                    Container(
+                      decoration: BoxDecoration(
+                        color: headerColor,
+                        borderRadius: const BorderRadius.only(
+                          bottomLeft: Radius.circular(20),
+                          bottomRight: Radius.circular(20),
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.grey.withOpacity(0.3),
+                            spreadRadius: 2,
+                            blurRadius: 5,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 25, horizontal: 24),
+                      child: const Text(
+                        "Client Feedbacks",
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 26,
+                          color: Colors.black87,
+                        ),
                       ),
                     ),
-                  ],
-                ),
-              ),
 
               // ---
 
@@ -456,9 +456,13 @@ void _onSearchChanged(String query) {
                   },
                 ),
               ),
-            ],
-          ),
-        );
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          )
+        ;
       },
     );
   }

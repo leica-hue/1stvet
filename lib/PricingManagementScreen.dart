@@ -3,6 +3,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+import 'common_sidebar.dart';
+
 class PricingManagementScreen extends StatefulWidget {
   const PricingManagementScreen({super.key});
 
@@ -314,83 +316,106 @@ class _PricingManagementScreenState extends State<PricingManagementScreen> {
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.black87),
       ),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 900),
-          child: StreamBuilder<DocumentSnapshot>(
-            stream: _getRatesStream(),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator(color: Color(0xFF728D5A)));
-              }
+      body: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const CommonSidebar(currentScreen: 'Pricing'),
+          Expanded(
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 900),
+                child: StreamBuilder<DocumentSnapshot>(
+                  stream: _getRatesStream(),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator(color: Color(0xFF728D5A)));
+                    }
 
-              if (snapshot.hasError) {
-                return Center(child: Text('❌ Error loading rates: ${snapshot.error}'));
-              }
+                    if (snapshot.hasError) {
+                      return Center(child: Text('❌ Error loading rates: ${snapshot.error}'));
+                    }
 
-              final Map<String, dynamic> snapshotData = snapshot.data?.data() as Map<String, dynamic>? ?? {};
-              final ratesData = snapshotData.isNotEmpty ? snapshotData : _defaultRates;
+                    final Map<String, dynamic> snapshotData =
+                        snapshot.data?.data() as Map<String, dynamic>? ?? {};
+                    final ratesData = snapshotData.isNotEmpty ? snapshotData : _defaultRates;
 
-              if (snapshotData.isEmpty && snapshot.data?.exists == false) {
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  _firestore.collection(_collectionName).doc(_ratesDocId).set(_defaultRates);
-                });
-              }
+                    if (snapshotData.isEmpty && snapshot.data?.exists == false) {
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        _firestore.collection(_collectionName).doc(_ratesDocId).set(_defaultRates);
+                      });
+                    }
 
-              final consultFee = _formatPrice(ratesData['consultation_fee_php']);
-              final urgentSurcharge = _formatPrice(ratesData['urgent_surcharge_php']);
+                    final consultFee = _formatPrice(ratesData['consultation_fee_php']);
+                    final urgentSurcharge = _formatPrice(ratesData['urgent_surcharge_php']);
 
-              final vaccinationRates =
-                  (ratesData['vaccination_rates'] ?? _defaultRates['vaccination_rates']) as Map<String, dynamic>;
-              final dewormingRates =
-                  (ratesData['deworming_rates'] ?? _defaultRates['deworming_rates']) as Map<String, dynamic>;
+                    final vaccinationRates =
+                        (ratesData['vaccination_rates'] ?? _defaultRates['vaccination_rates'])
+                            as Map<String, dynamic>;
+                    final dewormingRates =
+                        (ratesData['deworming_rates'] ?? _defaultRates['deworming_rates'])
+                            as Map<String, dynamic>;
 
-              return ListView(
-                children: [
-                  const Padding(
-                    padding: EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 8.0),
-                    child: Text('Fixed Fees',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
-                  ),
-                  _buildPriceInputTile(
-                    title: 'Initial Consultation Fee',
-                    subtitle: 'Base cost for general appointments.',
-                    firestoreField: 'consultation_fee_php',
-                    initialValue: consultFee,
-                    icon: Icons.monitor_heart_outlined,
-                  ),
-                  _buildPriceInputTile(
-                    title: 'Urgent Care Surcharge',
-                    subtitle: 'Added for emergency or after-hours visits.',
-                    firestoreField: 'urgent_surcharge_php',
-                    initialValue: urgentSurcharge,
-                    icon: Icons.warning_amber_rounded,
-                  ),
-                  const Padding(
-                    padding: EdgeInsets.fromLTRB(16.0, 24.0, 16.0, 8.0),
-                    child: Text('Tiered Services',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
-                  ),
-                  _buildTieredServiceTile(
-                    title: 'Routine Vaccination',
-                    subtitle: 'Species-based vaccine pricing.',
-                    rates: vaccinationRates,
-                    baseFirestoreField: 'vaccination_rates',
-                    icon: Icons.vaccines_outlined,
-                  ),
-                  _buildTieredServiceTile(
-                    title: 'Deworming Service',
-                    subtitle: 'Based on pet size/weight.',
-                    rates: dewormingRates,
-                    baseFirestoreField: 'deworming_rates',
-                    icon: Icons.bug_report_outlined,
-                  ),
-                  const SizedBox(height: 50),
-                ],
-              );
-            },
+                    return ListView(
+                      children: [
+                        const Padding(
+                          padding: EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 8.0),
+                          child: Text(
+                            'Fixed Fees',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black87,
+                            ),
+                          ),
+                        ),
+                        _buildPriceInputTile(
+                          title: 'Initial Consultation Fee',
+                          subtitle: 'Base cost for general appointments.',
+                          firestoreField: 'consultation_fee_php',
+                          initialValue: consultFee,
+                          icon: Icons.monitor_heart_outlined,
+                        ),
+                        _buildPriceInputTile(
+                          title: 'Urgent Care Surcharge',
+                          subtitle: 'Added for emergency or after-hours visits.',
+                          firestoreField: 'urgent_surcharge_php',
+                          initialValue: urgentSurcharge,
+                          icon: Icons.warning_amber_rounded,
+                        ),
+                        const Padding(
+                          padding: EdgeInsets.fromLTRB(16.0, 24.0, 16.0, 8.0),
+                          child: Text(
+                            'Tiered Services',
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.black87,
+                            ),
+                          ),
+                        ),
+                        _buildTieredServiceTile(
+                          title: 'Routine Vaccination',
+                          subtitle: 'Species-based vaccine pricing.',
+                          rates: vaccinationRates,
+                          baseFirestoreField: 'vaccination_rates',
+                          icon: Icons.vaccines_outlined,
+                        ),
+                        _buildTieredServiceTile(
+                          title: 'Deworming Service',
+                          subtitle: 'Based on pet size/weight.',
+                          rates: dewormingRates,
+                          baseFirestoreField: 'deworming_rates',
+                          icon: Icons.bug_report_outlined,
+                        ),
+                        const SizedBox(height: 50),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ),
           ),
-        ),
+        ],
       ),
     );
   }

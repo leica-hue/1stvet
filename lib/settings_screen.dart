@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'common_sidebar.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -308,12 +309,35 @@ Future<String?> _showNewPasswordDialog() async {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9F5),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFF728D5A),
-        title: const Text('Settings', style: TextStyle(color: Colors.white)),
-        iconTheme: const IconThemeData(color: Colors.white),
+      body: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Sidebar
+          const CommonSidebar(currentScreen: 'Settings'),
+          
+          // Main content
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Header
+                Container(
+                  width: double.infinity,
+                  color: const Color(0xFFBDD9A4),
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+                  child: const Text(
+                    'Settings',
+                    style: TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.black,
+                    ),
       ),
-      body: ListView(
+                ),
+                
+                // Settings content
+                Expanded(
+                  child: ListView(
         padding: const EdgeInsets.all(20),
         children: [
           const Text('Account', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
@@ -346,6 +370,12 @@ Future<String?> _showNewPasswordDialog() async {
               'Delete Account',
               'This action is permanent and irreversible. Your data will be deleted. Do you really want to proceed?',
               _deleteAccount,
+            ),
+          ),
+        ],
+                  ),
+                ),
+              ],
             ),
           ),
         ],

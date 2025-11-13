@@ -9,17 +9,11 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
 // Import necessary screens
-import 'login_screen.dart';
 import 'settings_screen.dart';
-import 'user_prefs.dart';
 import 'payment_option_screen.dart';
-import 'dashboard_screen.dart';
-import 'appointments_screen.dart';
-import 'patients_list_screen.dart';
-import 'analytics_screen.dart';
-import 'feedback_screen.dart';
 // 🎯 REQUIRED: Import the new pricing screen
-import 'PricingManagementScreen.dart'; 
+import 'PricingManagementScreen.dart';
+import 'common_sidebar.dart'; 
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -233,10 +227,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
         );
       }
       
-      if (mounted) setState(() {
+      if (mounted) {
+        setState(() {
         _localProfileImageFile = null;
         _profileImageUrl = oldImageUrl;
       });
+      }
     }
   }
 
@@ -244,9 +240,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   void _navigateTo(Widget screen) {
     // This uses pushReplacement for sidebar items, which clears the history.
-    // Use regular Navigator.push for the SettingsScreen or PricingManagementScreen 
-    // to allow a back button if they are nested within the Profile's sidebar.
-    if (screen is SettingsScreen || screen is PricingManagementScreen) {
+    // Use regular Navigator.push for screens that should allow going back
+    if (screen is SettingsScreen || screen is PricingManagementScreen || screen is PaymentOptionScreen) {
         Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
     } else {
         Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => screen));
@@ -266,122 +261,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Widget _sidebarItem({
-    required IconData icon,
-    required String title,
-    bool selected = false,
-    VoidCallback? onTap,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
-        decoration: BoxDecoration(
-          color: selected ? Colors.white24 : Colors.transparent,
-          borderRadius: BorderRadius.circular(6),
-        ),
-        child: Row(
-          children: [
-            Icon(icon, color: Colors.white, size: 20),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                title,
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 16,
-                  fontWeight: selected ? FontWeight.bold : FontWeight.w500,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // --- Sidebar Widget (No "Manage Rates" button here) ---
-
-  Widget _buildSidebar() {
-    return Container(
-      width: 240,
-      color: const Color(0xFF728D5A),
-      padding: const EdgeInsets.symmetric(vertical: 30, horizontal: 16),
-      child: Column(
-        children: [
-          Center(child: Image.asset('assets/furever2.png', width: 150)),
-          const SizedBox(height: 40),
-          
-          Expanded( // Added Expanded and SingleChildScrollView for potential scrolling
-            child: SingleChildScrollView(
-              child: Column(
-                children: [
-                  _sidebarItem(icon: Icons.person, title: "Profile", selected: true),
-                  const SizedBox(height: 12),
-                  _sidebarItem(
-                    icon: Icons.dashboard,
-                    title: "Dashboard",
-                    onTap: () => _navigateTo(const DashboardScreen()),
-                  ),
-                  const SizedBox(height: 12),
-                  _sidebarItem(
-                    icon: Icons.calendar_today,
-                    title: "Appointments",
-                    onTap: () => _navigateTo(AppointmentsPage(appointmentDoc: null)),
-                  ),
-                  const SizedBox(height: 12),
-                  _sidebarItem(
-                    icon: Icons.analytics,
-                    title: "Analytics",
-                    onTap: () => _navigateTo(const AnalyticsScreen()),
-                  ),
-                  const SizedBox(height: 12),
-                  _sidebarItem(
-                    icon: Icons.pets,
-                    title: "Patients",
-                    onTap: () => _navigateTo(const PatientHistoryScreen()),
-                  ),
-                  const SizedBox(height: 12),
-                  _sidebarItem(
-                    icon: Icons.feedback,
-                    title: "Feedback",
-                    onTap: () => _navigateTo(const VetFeedbackScreen()),
-                  ),
-                  const SizedBox(height: 12),
-                  // The "Manage Rates" button is REMOVED from here.
-                ],
-              ),
-            ),
-          ),
-          
-          const SizedBox(height: 24),
-          _sidebarItem(
-            icon: Icons.settings,
-            title: "Settings",
-            onTap: () => _navigateTo(const SettingsScreen()),
-          ),
-          const SizedBox(height: 12),
-          _sidebarItem(
-            icon: Icons.logout,
-            title: "Logout",
-            onTap: () async {
-              await UserPrefs.clearLoggedIn();
-              if (!mounted) return;
-              // Clears all navigation history and goes to login screen
-              Navigator.pushAndRemoveUntil(
-                context,
-                MaterialPageRoute(
-                  builder: (_) =>
-                      const LoginScreen(registeredEmail: '', registeredPassword: ''),
-                ),
-                (route) => false,
-              );
-            },
-          ),
-        ],
-      ),
-    );
-  }
   
   // --- Main Build Method ---
 
@@ -398,7 +277,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Sidebar
-          _buildSidebar(),
+          const CommonSidebar(currentScreen: 'Profile'),
 
           // Main content
           Expanded(

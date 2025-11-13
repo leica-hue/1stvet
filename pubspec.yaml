@@ -76,6 +76,7 @@ flutter:
     - assets/cat.png
     - assets/dog.png
     - assets/default_profile.png
+    - assets/GCash-MyQR-13112025232733.PNG.jpg
   fonts:
     - family: Inter
       fonts: 

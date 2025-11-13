@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'vet_history_notes_screen.dart';
 import 'dart:async'; // Import for StreamSubscription
+import 'common_sidebar.dart';
 
 class PatientHistoryScreen extends StatefulWidget {
   const PatientHistoryScreen({super.key});
@@ -109,7 +110,7 @@ class _PatientHistoryScreenState extends State<PatientHistoryScreen> {
     _petSubscription = _firestore.collection('petInfos').snapshots().listen((petSnapshot) {
       _petMap = {
         for (var doc in petSnapshot.docs)
-          doc.id: doc.data() as Map<String, dynamic>,
+          doc.id: doc.data(),
       };
       // Once pet data is loaded, check if we can process appointments
       if (_allAppointments.isNotEmpty || _isLoading) {
@@ -130,7 +131,7 @@ class _PatientHistoryScreenState extends State<PatientHistoryScreen> {
         .snapshots()
         .listen((appointmentSnapshot) {
       _allAppointments = appointmentSnapshot.docs.map((appDoc) {
-        final appData = appDoc.data() as Map<String, dynamic>;
+        final appData = appDoc.data();
         final petId = appData['petDocId'] ?? appData['petId'] ?? '';
         final petData = _petMap[petId] ?? {}; // Use the cached pet map
         
@@ -232,31 +233,30 @@ class _PatientHistoryScreenState extends State<PatientHistoryScreen> {
     // ... UI elements (Header and Search/Sort) remain the same ...
     return Scaffold(
       backgroundColor: Colors.grey[50],
-      body: Column(
+      body: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header
-          Container(
-            color: headerColor,
-            width: double.infinity,
-            padding: const EdgeInsets.fromLTRB(10, 40, 20, 10),
-            child: Row(
+          // Sidebar
+          const CommonSidebar(currentScreen: 'Patients'),
+          
+          // Main content
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                IconButton(
-                  icon: Icon(Icons.arrow_back, color: Colors.grey[800]),
-                  onPressed: () => Navigator.pop(context),
-                  splashRadius: 20,
-                ),
-                Text(
-                  "Patient History and Information",
-                  style: theme.textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.grey[800],
+                // Header
+                Container(
+                  color: headerColor,
+                  width: double.infinity,
+                  padding: const EdgeInsets.fromLTRB(24, 20, 20, 10),
+                  child: Text(
+                    "Patient History and Information",
+                    style: theme.textTheme.headlineSmall?.copyWith(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.grey[800],
+                    ),
                   ),
                 ),
-              ],
-            ),
-          ),
 
           // Search + Sort
           Container(
@@ -378,9 +378,12 @@ class _PatientHistoryScreenState extends State<PatientHistoryScreen> {
                           );
                         },
                       ),
-          ),
-        ],
-      ),
-    );
+              ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
   }
-}

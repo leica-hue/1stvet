@@ -1,6 +1,5 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'dart:io'; 
 import 'package:image_picker/image_picker.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
@@ -28,10 +27,11 @@ class PaymentProofScreen extends StatefulWidget {
 
 class _PaymentProofScreenState extends State<PaymentProofScreen> {
   
+  final _formKey = GlobalKey<FormState>();
   final TextEditingController _transactionIdController = TextEditingController();
   final TextEditingController _notesController = TextEditingController();
 
-  File? _pickedImage;
+  Uint8List? _pickedImageBytes;
   String? _imageFileName;
   
   final double _amountDue = 499.00; // Automatically filled amount
@@ -42,38 +42,66 @@ class _PaymentProofScreenState extends State<PaymentProofScreen> {
     return FirebaseAuth.instance.currentUser?.uid;
   }
 
+  // Validation function for GCash Transaction ID
+  String? _validateGCashTransactionId(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return 'GCash Transaction ID is required';
+    }
+    
+    final trimmedValue = value.trim();
+    
+    // Only numbers and dashes are allowed
+    if (!RegExp(r'^[0-9\-]+$').hasMatch(trimmedValue)) {
+      return 'Only numbers and dashes are allowed';
+    }
+    
+    // Remove dashes to check minimum length
+    final numbersOnly = trimmedValue.replaceAll('-', '');
+    if (numbersOnly.isEmpty) {
+      return 'Transaction ID must contain at least one number';
+    }
+    
+    return null; // Valid
+  }
+
   Future<void> _pickScreenshot() async {
     final picker = ImagePicker();
     final pickedFile = await picker.pickImage(source: ImageSource.gallery);
 
     if (pickedFile != null) {
+      final bytes = await pickedFile.readAsBytes();
+      if (!mounted) return;
       setState(() {
-        _pickedImage = File(pickedFile.path);
+        _pickedImageBytes = bytes;
         _imageFileName = pickedFile.name;
       });
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text("🖼️ Screenshot attached!"),
-            backgroundColor: AppColors.secondaryGreen,
-            duration: Duration(seconds: 2),
-          ),
-        );
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("📎 Screenshot attached!"),
+          backgroundColor: AppColors.secondaryGreen,
+          duration: Duration(seconds: 2),
+        ),
+      );
     }
   }
 
   // NOTE: This function now relies on the ID being retrieved inside _submitProof
   Future<String?> _uploadScreenshot(String vetId) async {
-    if (_pickedImage == null) return null;
+    if (_pickedImageBytes == null) return null;
+
+    final fileExtension = _imageFileName?.split('.').last.toLowerCase() ?? 'jpg';
+    final contentType = fileExtension == 'png' ? 'image/png' : 'image/jpeg';
 
     final storageRef = FirebaseStorage.instance
       .ref()
-      .child('payment_proofs/${vetId}_${DateTime.now().millisecondsSinceEpoch}.jpg');
+      .child('payment_proofs/${vetId}_${DateTime.now().millisecondsSinceEpoch}.$fileExtension');
 
     try {
-      await storageRef.putFile(_pickedImage!);
+      await storageRef.putData(
+        _pickedImageBytes!,
+        SettableMetadata(contentType: contentType),
+      );
       final imageUrl = await storageRef.getDownloadURL();
       return imageUrl;
     } on FirebaseException catch (e) {
@@ -116,6 +144,20 @@ class _PaymentProofScreenState extends State<PaymentProofScreen> {
   }
 
   Future<void> _submitProof() async {
+    // Validate form first
+    if (!_formKey.currentState!.validate()) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("âŒ Please enter a valid GCash Transaction ID."),
+            backgroundColor: AppColors.secondaryRed,
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+      return;
+    }
+
     // 1. Get Vet ID and perform initial validation
     final String? currentvetId = _getCurrentvetId();
   
@@ -123,7 +165,7 @@ class _PaymentProofScreenState extends State<PaymentProofScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text("❌ Error: Vet ID not found. Please log in again."),
+            content: Text("âŒ Error: Vet ID not found. Please log in again."),
             backgroundColor: AppColors.secondaryRed,
           ),
         );
@@ -131,11 +173,12 @@ class _PaymentProofScreenState extends State<PaymentProofScreen> {
       return;
     }
 
-    if (_pickedImage == null || _transactionIdController.text.isEmpty) {
+    final hasImage = _pickedImageBytes != null;
+    if (!hasImage) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text("❌ Please fill in the ID and upload the screenshot."),
+            content: Text("âŒ Please upload a screenshot of your payment."),
             backgroundColor: AppColors.secondaryRed,
           ),
         );
@@ -189,7 +232,7 @@ class _PaymentProofScreenState extends State<PaymentProofScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text("✅ Payment submitted & Premium activated until ${newPremiumUntil.month}/${newPremiumUntil.day}/${newPremiumUntil.year}!"),
+          content: Text("âœ… Payment submitted & Premium activated until ${newPremiumUntil.month}/${newPremiumUntil.day}/${newPremiumUntil.year}!"),
           backgroundColor: AppColors.primaryGreen,
           duration: const Duration(seconds: 4),
         ),
@@ -232,26 +275,40 @@ class _PaymentProofScreenState extends State<PaymentProofScreen> {
             constraints: const BoxConstraints(maxWidth: 550),
             child: Padding(
               padding: const EdgeInsets.all(24.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const Text(
-                    'Please fill in the required details and upload a screenshot of your GCash payment for quick verification.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 16, color: Colors.black87),
-                  ),
-                  const SizedBox(height: 30),
-
-                  // 1. Input for GCash Transaction ID
-                  TextFormField(
-                    controller: _transactionIdController,
-                    decoration: InputDecoration(
-                      labelText: 'GCash Transaction ID (Required)',
-                      hintText: 'e.g., 20240921-2345-6789',
-                      prefixIcon: const Icon(Icons.receipt_long, color: AppColors.gcashBlue),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: <Widget>[
+                    const Text(
+                      'Please fill in the required details and upload a screenshot of your GCash payment for quick verification.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 16, color: Colors.black87),
                     ),
-                  ),
+                    const SizedBox(height: 30),
+
+                    // 1. Input for GCash Transaction ID
+                    TextFormField(
+                      controller: _transactionIdController,
+                      validator: _validateGCashTransactionId,
+                      autovalidateMode: AutovalidateMode.onUserInteraction,
+                      decoration: InputDecoration(
+                        labelText: 'GCash Transaction ID (Required)',
+                        hintText: 'e.g., 20240921-2345-6789 or 2024092123456789',
+                        prefixIcon: const Icon(Icons.receipt_long, color: AppColors.gcashBlue),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        errorBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: AppColors.secondaryRed, width: 2),
+                        ),
+                        focusedErrorBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: AppColors.secondaryRed, width: 2),
+                        ),
+                        helperText: 'Only numbers and dashes are allowed',
+                        helperMaxLines: 2,
+                      ),
+                    ),
                   const SizedBox(height: 20),
 
                   // 2. Upload Screenshot Button/Display
@@ -265,10 +322,14 @@ class _PaymentProofScreenState extends State<PaymentProofScreen> {
                     child: Column(
                       children: [
                         Text(
-                          _pickedImage == null ? 'No Screenshot Attached' : 'Attached File: $_imageFileName',
+                          _pickedImageBytes == null
+                              ? 'No Screenshot Attached'
+                              : 'Attached File: $_imageFileName',
                           style: TextStyle(
                             fontSize: 14,
-                            color: _pickedImage == null ? Colors.redAccent : AppColors.primaryGreen,
+                            color: _pickedImageBytes == null
+                                ? Colors.redAccent
+                                : AppColors.primaryGreen,
                             fontStyle: FontStyle.italic,
                           ),
                         ),
@@ -335,7 +396,7 @@ class _PaymentProofScreenState extends State<PaymentProofScreen> {
           ),
         ),
       ),
-    );
+    ));
   }
 }
 // (PaymentOptionScreen remains the same)
@@ -344,10 +405,10 @@ class _PaymentProofScreenState extends State<PaymentProofScreen> {
 class PaymentOptionScreen extends StatelessWidget {
   const PaymentOptionScreen({super.key});
 
-  static const String adminGCashName = "A. Vet Admin";
-  static const String adminGCashNumber = "0917 123 4567";
+  static const String adminGCashName = "H. F. P. C.";
+  static const String adminGCashNumber = "09995188336";
   static const String amountDue = '₱499.00';
-  static const String qrCodePlaceholder = 'assets/gcash_qr_placeholder.png'; 
+  static const String qrCodeImage = 'assets/GCash-MyQR-13112025232733.PNG.jpg'; 
 
   Widget _buildPremiumBanner() { 
     return Container(
@@ -372,7 +433,7 @@ class PaymentOptionScreen extends StatelessWidget {
           Icon(Icons.workspace_premium, color: Colors.white, size: 60),
           SizedBox(height: 15),
           Text(
-            'Go Premium: ₱499.00/month',
+            'Go Premium: â‚±499.00/month',
             style: TextStyle(
               fontSize: 28,
               fontWeight: FontWeight.w900,
@@ -496,13 +557,21 @@ class PaymentOptionScreen extends StatelessWidget {
           ),
           width: 200,
           height: 200,
-          child: 
-            const Placeholder(
-              fallbackHeight: 200,
-              fallbackWidth: 200,
-              color: AppColors.gcashBlue,
-              strokeWidth: 5.0,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Image.asset(
+              qrCodeImage,
+              fit: BoxFit.contain,
+              errorBuilder: (context, error, stackTrace) {
+                return const Placeholder(
+                  fallbackHeight: 200,
+                  fallbackWidth: 200,
+                  color: AppColors.gcashBlue,
+                  strokeWidth: 5.0,
+                );
+              },
             ),
+          ),
         ),
         const SizedBox(height: 10),
         Text(
