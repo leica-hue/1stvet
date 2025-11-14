@@ -233,11 +233,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final downloadUrl = await snapshot.ref.getDownloadURL();
       print('IMAGE DEBUG: Upload complete, downloadUrl = $downloadUrl');
 
-      final finalUrl = '$downloadUrl?${DateTime.now().millisecondsSinceEpoch}';
+      // Don't add timestamp parameter - it can cause CORS issues on web
+      final finalUrl = downloadUrl;
+      
+      print('IMAGE DEBUG: finalUrl = $finalUrl');
 
       setState(() {
         _profileImageUrl = finalUrl;
         _localProfileImageFile = null;
+        print('IMAGE DEBUG: setState called - _profileImageUrl set to: $_profileImageUrl');
       });
 
       print('IMAGE DEBUG: Updating vets/$currentUserId with profileImageUrl');
@@ -582,30 +586,47 @@ class _ProfileScreenState extends State<ProfileScreen> {
       // For web, use Image.network instead of CachedNetworkImage
       if (kIsWeb) {
         print('🌐 AVATAR: Using Image.network for web');
+        print('🌐 AVATAR: Image URL = $_profileImageUrl');
         imageWidget = Image.network(
           _profileImageUrl,
+          key: ValueKey(_profileImageUrl), // Force rebuild when URL changes
           width: 120,
           height: 120,
           fit: BoxFit.cover,
           loadingBuilder: (context, child, loadingProgress) {
             if (loadingProgress == null) {
-              print('✅ AVATAR: Image loaded successfully');
+              print('✅ AVATAR: Image loaded successfully!');
               return child;
             }
-            print('🔄 AVATAR: Loading... ${loadingProgress.cumulativeBytesLoaded} / ${loadingProgress.expectedTotalBytes}');
+            final progress = loadingProgress.expectedTotalBytes != null
+                ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
+                : null;
+            print('🔄 AVATAR: Loading... ${(progress! * 100).toStringAsFixed(0)}%');
             return const Center(child: CircularProgressIndicator(strokeWidth: 2.0));
           },
           errorBuilder: (context, error, stackTrace) {
-            print('❌ AVATAR: Failed to load image on web: $error');
-            print('❌ AVATAR ERROR STACK: $stackTrace');
+            print('❌ AVATAR: Failed to load image on web!');
+            print('❌ AVATAR ERROR: $error');
+            print('❌ AVATAR URL: $_profileImageUrl');
+            print('❌ AVATAR STACK: $stackTrace');
             return Container(
               width: 120,
               height: 120,
               color: Colors.grey[300],
-              child: const Icon(
-                Icons.broken_image,
-                size: 60,
-                color: Colors.grey,
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(
+                    Icons.broken_image,
+                    size: 40,
+                    color: Colors.grey,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Failed to load',
+                    style: TextStyle(fontSize: 10, color: Colors.grey[600]),
+                  ),
+                ],
               ),
             );
           },
