@@ -131,6 +131,12 @@ class _PaymentProofScreenState extends State<PaymentProofScreen> {
       }
       
       final imageUrl = await storageRef.getDownloadURL();
+      
+      // Log successful upload
+      print('✅ Screenshot uploaded successfully!');
+      print('   Storage path: payment_proofs/$vetId/$fileName');
+      print('   Download URL: $imageUrl');
+      
       return imageUrl;
     } on FirebaseException catch (e) {
       if (mounted) {
@@ -279,6 +285,12 @@ class _PaymentProofScreenState extends State<PaymentProofScreen> {
         'premiumUntilCalculated': Timestamp.fromDate(newPremiumUntil),
       };
       
+      print('📝 Preparing to save payment data to Firestore:');
+      print('   vetId: $currentvetId');
+      print('   transactionId: ${_transactionIdController.text.trim()}');
+      print('   screenshotUrl: $screenshotUrl');
+      print('   amount: $_amountDue');
+      
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -288,6 +300,18 @@ class _PaymentProofScreenState extends State<PaymentProofScreen> {
       );
       
       final docRef = await FirebaseFirestore.instance.collection('payment').add(paymentData);
+      
+      print('✅ Payment document created successfully!');
+      print('   Document ID: ${docRef.id}');
+      print('   Collection: payment');
+      print('   Screenshot URL stored: $screenshotUrl');
+      
+      // Verify the data was saved by reading it back
+      final savedDoc = await docRef.get();
+      final savedData = savedDoc.data();
+      print('📖 Verified saved data:');
+      print('   screenshotUrl from Firestore: ${savedData?['screenshotUrl']}');
+      print('   vetId from Firestore: ${savedData?['vetId']}');
       
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
