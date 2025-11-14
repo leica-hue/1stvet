@@ -88,24 +88,75 @@ class _PaymentProofScreenState extends State<PaymentProofScreen> {
 
   // NOTE: This function now relies on the ID being retrieved inside _submitProof
   Future<String?> _uploadScreenshot(String vetId) async {
-    if (_pickedImageBytes == null) return null;
+    if (_pickedImageBytes == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('❌ No screenshot selected'),
+            backgroundColor: AppColors.secondaryRed,
+          ),
+        );
+      }
+      return null;
+    }
 
     final fileExtension = _imageFileName?.split('.').last.toLowerCase() ?? 'jpg';
     final contentType = fileExtension == 'png' ? 'image/png' : 'image/jpeg';
 
+    // Match the Storage rules path: payment_proofs/{vetId}/{fileName}
+    final fileName = 'proof_${DateTime.now().millisecondsSinceEpoch}.$fileExtension';
     final storageRef = FirebaseStorage.instance
       .ref()
-      .child('payment_proofs/${vetId}_${DateTime.now().millisecondsSinceEpoch}.$fileExtension');
+      .child('payment_proofs/$vetId/$fileName');
 
     try {
-      await storageRef.putData(
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('⬆️ Uploading to Firebase Storage...')),
+        );
+      }
+      
+      final uploadTask = await storageRef.putData(
         _pickedImageBytes!,
         SettableMetadata(contentType: contentType),
       );
+      
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('✅ Upload complete: ${uploadTask.state}'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+      
       final imageUrl = await storageRef.getDownloadURL();
       return imageUrl;
     } on FirebaseException catch (e) {
-      print('Firebase Storage Error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Storage Error: ${e.code} - ${e.message}'),
+            backgroundColor: AppColors.secondaryRed,
+            duration: const Duration(seconds: 8),
+          ),
+        );
+      }
+      print('Firebase Storage Error Code: ${e.code}');
+      print('Firebase Storage Error Message: ${e.message}');
+      print('Full error: $e');
+      return null;
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Unexpected error: $e'),
+            backgroundColor: AppColors.secondaryRed,
+            duration: const Duration(seconds: 6),
+          ),
+        );
+      }
+      print('Unexpected upload error: $e');
       return null;
     }
   }
