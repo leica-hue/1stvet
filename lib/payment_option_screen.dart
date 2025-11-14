@@ -206,7 +206,7 @@ class _PaymentProofScreenState extends State<PaymentProofScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text("âŒ Please enter a valid GCash Transaction ID."),
+            content: Text("Please enter a valid GCash Transaction ID."),
             backgroundColor: AppColors.secondaryRed,
             duration: Duration(seconds: 2),
           ),
@@ -222,7 +222,7 @@ class _PaymentProofScreenState extends State<PaymentProofScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text("âŒ Error: Vet ID not found. Please log in again."),
+            content: Text("Error: Vet ID not found. Please log in again."),
             backgroundColor: AppColors.secondaryRed,
           ),
         );
@@ -235,7 +235,7 @@ class _PaymentProofScreenState extends State<PaymentProofScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text("âŒ Please upload a screenshot of your payment."),
+            content: Text("Please upload a screenshot of your payment."),
             backgroundColor: AppColors.secondaryRed,
           ),
         );
@@ -335,7 +335,7 @@ class _PaymentProofScreenState extends State<PaymentProofScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text("âœ… Payment submitted & Premium activated until ${newPremiumUntil.month}/${newPremiumUntil.day}/${newPremiumUntil.year}!"),
+          content: Text("Payment submitted & Premium activated until ${newPremiumUntil.month}/${newPremiumUntil.day}/${newPremiumUntil.year}!"),
           backgroundColor: AppColors.primaryGreen,
           duration: const Duration(seconds: 4),
         ),
@@ -548,7 +548,7 @@ class PaymentOptionScreen extends StatelessWidget {
           Icon(Icons.workspace_premium, color: Colors.white, size: 60),
           SizedBox(height: 15),
           Text(
-            'Go Premium: â‚±499.00/month',
+            'Go Premium: ₱499.00/month',
             style: TextStyle(
               fontSize: 28,
               fontWeight: FontWeight.w900,

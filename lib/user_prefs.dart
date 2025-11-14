@@ -56,11 +56,10 @@ class UserPrefs {
     final imagePath = prefs.getString(UserPrefsKeys.profileImage);
 
     return (
-      name: prefs.getString(UserPrefsKeys.name) ?? 'Dr. Sarah Doe',
-      location:
-          prefs.getString(UserPrefsKeys.location) ?? 'Marawoy, Lipa City, Batangas',
-      email: prefs.getString(UserPrefsKeys.email) ?? 'sarah@vetclinic.com',
-      specialization: prefs.getString(UserPrefsKeys.specialization) ?? 'Pathology',
+      name: prefs.getString(UserPrefsKeys.name) ?? '',
+      location: prefs.getString(UserPrefsKeys.location) ?? '',
+      email: prefs.getString(UserPrefsKeys.email) ?? '',
+      specialization: prefs.getString(UserPrefsKeys.specialization) ?? '',
       profileImage:
           (imagePath != null && File(imagePath).existsSync()) ? File(imagePath) : null,
     );

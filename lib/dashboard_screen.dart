@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'appointments_screen.dart';
 import 'profile_screen.dart';
@@ -86,6 +87,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
   String _specialization = ''; // Will be loaded from Firestore
   String _vetStatus = 'Loading...';
   File? _profileImage;
+  String _profileImageUrl = ''; // Firebase Storage URL
 
   @override
   void initState() {
@@ -160,11 +162,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
     String newName = profile.name;
     String newEmail = profile.email;
     File? newProfileImage = profile.profileImage;
+    String newProfileImageUrl = '';
     // Initialize these with generic defaults if UserPrefs happens to contain placeholders
     String newSpecialization = 'Specialization not set';
     String newLocation = 'Location not set';
 
-    // 2. Load Specialization, Location from Firestore using vetId
+    // 2. Load Specialization, Location, and Profile Image URL from Firestore using vetId
     if (user != null) {
       try {
         final doc = await _firestore.collection('vets').doc(user!.uid).get();
@@ -174,8 +177,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
           // Get the values from Firestore (or empty string if not present/null)
           final firestoreSpecialization = data?['specialization']?.toString().trim() ?? '';
           final firestoreLocation = data?['location']?.toString().trim() ?? '';
+          final firestoreImageUrl = data?['profileImageUrl']?.toString().trim() ?? '';
 
-          // ✅ Set specialization and location from Firestore. 
+          // ✅ Set specialization and location from Firestore.
           // If the Firestore value is an empty string, it will be handled by the logic below.
           if (firestoreSpecialization.isNotEmpty) {
             newSpecialization = firestoreSpecialization; // Use valid Firestore value
@@ -183,9 +187,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
           if (firestoreLocation.isNotEmpty) {
             newLocation = firestoreLocation; // Use valid Firestore value
           }
+          if (firestoreImageUrl.isNotEmpty) {
+            newProfileImageUrl = firestoreImageUrl; // Use Firestore image URL
+          }
         }
       } catch (e) {
-        debugPrint('Error loading specialization/location from Firestore: $e');
+        debugPrint('Error loading data from Firestore: $e');
+        // Fallback to SharedPreferences if Firestore fails
+        await _loadProfileImageFromSharedPreferences();
+      }
+    }
+
+    // 3. If no URL from Firestore, try SharedPreferences as fallback
+    if (newProfileImageUrl.isEmpty && user != null) {
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        newProfileImageUrl = prefs.getString('profileImageUrl_${user!.uid}') ?? '';
+        if (newProfileImageUrl.isNotEmpty) {
+          debugPrint('DASHBOARD: Loaded profile image URL from SharedPreferences');
+        }
+      } catch (e) {
+        debugPrint('Error loading profile image from SharedPreferences: $e');
       }
     }
 
@@ -194,6 +216,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       _name = newName;
       _email = newEmail;
       _profileImage = newProfileImage;
+      _profileImageUrl = newProfileImageUrl;
 
       // Apply the prioritized values
       _specialization = newSpecialization;
@@ -210,6 +233,25 @@ class _DashboardScreenState extends State<DashboardScreen> {
           _specialization = 'Specialization not set';
       }
     });
+
+    debugPrint('DASHBOARD: Profile loaded - name=$_name, imageUrl=$_profileImageUrl');
+  }
+
+  // Load profile image URL from SharedPreferences as fallback
+  Future<void> _loadProfileImageFromSharedPreferences() async {
+    if (user == null) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cachedUrl = prefs.getString('profileImageUrl_${user!.uid}') ?? '';
+      if (mounted) {
+        setState(() {
+          _profileImageUrl = cachedUrl;
+        });
+      }
+      debugPrint('DASHBOARD: Loaded profile image URL from SharedPreferences fallback');
+    } catch (e) {
+      debugPrint('Error in SharedPreferences fallback: $e');
+    }
   }
 
   // Setup Firestore ratings listener (Handles real-time updates)
@@ -381,6 +423,83 @@ class _DashboardScreenState extends State<DashboardScreen> {
     );
   }
 
+  // Build profile image widget with Firebase Storage support
+  Widget _buildProfileImage() {
+    // Priority: Firebase Storage URL -> local file -> placeholder
+    if (_profileImageUrl.isNotEmpty) {
+      final imageUrl = _profileImageUrl.contains('?')
+          ? _profileImageUrl
+          : '$_profileImageUrl?alt=media';
+
+      return Image.network(
+        imageUrl,
+        width: 64,
+        height: 64,
+        fit: BoxFit.cover,
+        loadingBuilder: (context, child, loadingProgress) {
+          if (loadingProgress == null) return child;
+          return Container(
+            width: 64,
+            height: 64,
+            color: Colors.grey[200],
+            child: Center(
+              child: CircularProgressIndicator(
+                value: loadingProgress.expectedTotalBytes != null
+                    ? loadingProgress.cumulativeBytesLoaded /
+                        loadingProgress.expectedTotalBytes!
+                    : null,
+                color: const Color(0xFF728D5A),
+                strokeWidth: 2.0,
+              ),
+            ),
+          );
+        },
+        errorBuilder: (context, error, stackTrace) {
+          debugPrint('DASHBOARD IMAGE ERROR: $error');
+          // Fallback to local file if network fails
+          if (_profileImage != null) {
+            return Image.file(
+              _profileImage!,
+              width: 64,
+              height: 64,
+              fit: BoxFit.cover,
+            );
+          }
+          return Container(
+            width: 64,
+            height: 64,
+            color: Colors.grey[300],
+            child: const Icon(
+              Icons.person,
+              size: 40,
+              color: Colors.white,
+            ),
+          );
+        },
+      );
+    } else if (_profileImage != null) {
+      // Fallback to local file
+      return Image.file(
+        _profileImage!,
+        width: 64,
+        height: 64,
+        fit: BoxFit.cover,
+      );
+    } else {
+      // Default placeholder
+      return Container(
+        width: 64,
+        height: 64,
+        color: const Color(0xFFBBD29C),
+        child: const Icon(
+          Icons.person,
+          size: 40,
+          color: Colors.white,
+        ),
+      );
+    }
+  }
+
   Widget _buildProfileHeader() {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -406,11 +525,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             CircleAvatar(
               radius: 32,
               backgroundColor: Colors.grey.shade300,
-              // Use FileImage if _profileImage is not null
-              backgroundImage: _profileImage != null ? FileImage(_profileImage!) : null,
-              child: _profileImage == null
-                  ? const Icon(Icons.person, size: 40, color: Colors.white)
-                  : null,
+              child: ClipOval(child: _buildProfileImage()),
             ),
             const SizedBox(width: 20),
             Column(

@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:typed_data';
+
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
@@ -7,7 +8,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 
 import 'settings_screen.dart';
 import 'payment_option_screen.dart';
@@ -46,11 +46,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     'General',
   ];
 
-  File? _localProfileImageFile;
-  Uint8List? _profileImageBytes;
-  bool _isProfileImageLoading = false;
-  String _profileImageUrl = '';
-  String _profileImageStoragePath = '';
+  // Image state
+  File? _localProfileImageFile;        // for mobile preview
+  Uint8List? _webProfileImageBytes;    // for web preview
+  String _profileImageUrl = '';        // persisted download URL
+
   bool _isSaving = false;
   bool _isLoading = true;
 
@@ -78,15 +78,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
 
     try {
-      final doc =
-          await _firestore.collection('vets').doc(currentUserId).get();
+      final doc = await _firestore.collection('vets').doc(currentUserId).get();
 
       if (doc.exists) {
-        final data = doc.data()!;
-        nameController.text = data['name'] ?? 'Dr. Sarah Doe';
+        final data = doc.data() ?? {};
+
+        nameController.text = data['name'] ?? '';
         licenseController.text = data['license'] ?? '';
         emailController.text =
-            data['email'] ?? (_auth.currentUser?.email ?? 'sarah@vetclinic.com');
+            data['email'] ?? (_auth.currentUser?.email ?? '');
         locationController.text = data['location'] ?? '';
         clinicController.text = data['clinic'] ?? '';
 
@@ -97,55 +97,67 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 : _specializationPlaceholder;
 
         final loadedImageUrl = data['profileImageUrl'] ?? '';
-        final loadedImagePath = data['profileImagePath'] ?? '';
 
         if (mounted) {
           setState(() {
             _profileImageUrl = loadedImageUrl;
-            _profileImageStoragePath = loadedImagePath;
+            _localProfileImageFile = null;
+            _webProfileImageBytes = null;
           });
         } else {
           _profileImageUrl = loadedImageUrl;
-          _profileImageStoragePath = loadedImagePath;
+          _localProfileImageFile = null;
+          _webProfileImageBytes = null;
         }
 
-        print('📖 PROFILE LOADED FROM FIRESTORE:');
-        print('   User ID: $currentUserId');
-        print('   Name: ${nameController.text}');
-        print('   Profile Image URL: $_profileImageUrl');
-        print('   Image URL is ${_profileImageUrl.isEmpty ? "EMPTY" : "SET"}');
-
-        if (_profileImageUrl.isNotEmpty) {
-          _prefetchProfileImageBytes();
-        } else {
-          if (mounted) {
-            setState(() {
-              _profileImageBytes = null;
-            });
-          } else {
-            _profileImageBytes = null;
-          }
-        }
+        print('PROFILE LOADED: userId=$currentUserId, url=$_profileImageUrl');
       } else {
-        specialization = _specializationPlaceholder;
-        print('⚠️ No profile document found for user: $currentUserId');
-        if (mounted) {
-          setState(() {
-            _profileImageUrl = '';
-            _profileImageStoragePath = '';
-            _profileImageBytes = null;
-          });
-        } else {
-          _profileImageUrl = '';
-          _profileImageStoragePath = '';
-          _profileImageBytes = null;
-        }
+        // No Firestore doc, try SharedPreferences as fallback
+        await _loadFromSharedPreferences();
+        print('PROFILE: no document found for $currentUserId, loaded from SharedPreferences');
       }
     } catch (e) {
-      print('PROFILE DEBUG: Error loading profile: $e');
+      print('PROFILE ERROR: $e, falling back to SharedPreferences');
       specialization = _specializationPlaceholder;
+      // Try to load from SharedPreferences as fallback
+      await _loadFromSharedPreferences();
     } finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  // Load from SharedPreferences as fallback
+  Future<void> _loadFromSharedPreferences() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final cachedUrl = prefs.getString('profileImageUrl_$currentUserId') ?? '';
+
+      if (mounted) {
+        setState(() {
+          _profileImageUrl = cachedUrl;
+          _localProfileImageFile = null;
+          _webProfileImageBytes = null;
+        });
+      } else {
+        _profileImageUrl = cachedUrl;
+        _localProfileImageFile = null;
+        _webProfileImageBytes = null;
+      }
+
+      print('PROFILE: loaded image URL from SharedPreferences: $cachedUrl');
+    } catch (e) {
+      print('PROFILE: SharedPreferences error: $e');
+      if (mounted) {
+        setState(() {
+          _profileImageUrl = '';
+          _localProfileImageFile = null;
+          _webProfileImageBytes = null;
+        });
+      } else {
+        _profileImageUrl = '';
+        _localProfileImageFile = null;
+        _webProfileImageBytes = null;
+      }
     }
   }
 
@@ -203,7 +215,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         );
       }
     } catch (e) {
-      print('PROFILE DEBUG: Error saving profile: $e');
+      print('PROFILE SAVE ERROR: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('⚠️ Failed to save profile: $e')),
@@ -214,65 +226,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  Future<void> _prefetchProfileImageBytes() async {
-    if (_profileImageUrl.isEmpty && _profileImageStoragePath.isEmpty) {
-      print('IMAGE DEBUG: Nothing to prefetch (no url or storage path).');
-      return;
-    }
-
-    if (_isProfileImageLoading) {
-      print('IMAGE DEBUG: Prefetch already in progress, skipping.');
-      return;
-    }
-
-    if (mounted) {
-      setState(() => _isProfileImageLoading = true);
-    } else {
-      _isProfileImageLoading = true;
-    }
-
-    try {
-      Reference ref;
-      if (_profileImageStoragePath.isNotEmpty) {
-        ref = FirebaseStorage.instance.ref().child(_profileImageStoragePath);
-        print('IMAGE DEBUG: Prefetching using storage path $_profileImageStoragePath');
-      } else {
-        ref = FirebaseStorage.instance.refFromURL(_profileImageUrl);
-        print('IMAGE DEBUG: Prefetching using download URL');
-      }
-
-      final bytes = await ref.getData(5 * 1024 * 1024); // up to 5MB
-      if (bytes != null) {
-        print('✅ PROFILE IMAGE BYTES FETCHED: ${bytes.lengthInBytes} bytes');
-        if (mounted) {
-          setState(() {
-            _profileImageBytes = bytes;
-          });
-        } else {
-          _profileImageBytes = bytes;
-        }
-      } else {
-        print('⚠️ PROFILE IMAGE DOWNLOAD RETURNED NULL BYTES');
-      }
-    } catch (e, st) {
-      print('IMAGE DEBUG: Failed to download profile image bytes: $e');
-      print('IMAGE DEBUG STACK: $st');
-    } finally {
-      if (mounted) {
-        setState(() => _isProfileImageLoading = false);
-      } else {
-        _isProfileImageLoading = false;
-      }
-    }
-  }
-
   // Upload profile image to Firebase Storage
   Future<void> _pickImage() async {
-    print('IMAGE DEBUG: _pickImage called');
-    print('IMAGE DEBUG: currentUserId = $currentUserId');
+    print('IMAGE: _pickImage called, userId=$currentUserId');
 
     if (currentUserId.isEmpty) {
-      print('IMAGE DEBUG: User not logged in, aborting');
+      print('IMAGE: user not logged in, abort');
       return;
     }
 
@@ -281,32 +240,36 @@ class _ProfileScreenState extends State<ProfileScreen> {
         await picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
 
     if (pickedFile == null) {
-      print('IMAGE DEBUG: No image selected');
+      print('IMAGE: no image selected');
       return;
     }
 
-    final String oldImageUrl = _profileImageUrl;
-
-    Uint8List? pickedBytes;
-    File? pickedLocalFile;
-    if (kIsWeb) {
-      pickedBytes = await pickedFile.readAsBytes();
-    } else {
-      pickedLocalFile = File(pickedFile.path);
-      pickedBytes = await pickedLocalFile.readAsBytes();
-    }
-
-    if (pickedBytes == null || pickedBytes.isEmpty) {
-      print('IMAGE DEBUG: Picked bytes are empty, aborting upload.');
-      return;
-    }
+    String oldUrl = _profileImageUrl;
+    Uint8List bytes;
+    File? localFile;
 
     try {
+      if (kIsWeb) {
+        bytes = await pickedFile.readAsBytes();
+      } else {
+        localFile = File(pickedFile.path);
+        bytes = await localFile.readAsBytes();
+      }
+
+      if (bytes.isEmpty) {
+        print('IMAGE: picked bytes empty, abort');
+        return;
+      }
+
+      // Immediate preview
       setState(() {
         if (!kIsWeb) {
-          _localProfileImageFile = pickedLocalFile;
+          _localProfileImageFile = localFile;
+          _webProfileImageBytes = null;
+        } else {
+          _webProfileImageBytes = bytes;
+          _localProfileImageFile = null;
         }
-        _profileImageBytes = pickedBytes;
         _profileImageUrl = '';
       });
 
@@ -317,60 +280,54 @@ class _ProfileScreenState extends State<ProfileScreen> {
             '$currentUserId/profile_${DateTime.now().millisecondsSinceEpoch}.jpg',
           );
 
-      final storagePath = storageRef.fullPath;
-
+      print('IMAGE: starting upload to ${storageRef.fullPath}');
       final uploadTask = storageRef.putData(
-        pickedBytes,
+        bytes,
         SettableMetadata(contentType: 'image/jpeg'),
       );
 
-      print('IMAGE DEBUG: Starting upload');
       final snapshot = await uploadTask;
       final downloadUrl = await snapshot.ref.getDownloadURL();
-      print('IMAGE DEBUG: Upload complete, downloadUrl = $downloadUrl');
+      print('IMAGE: upload complete, url=$downloadUrl');
 
-      // Don't add timestamp parameter - it can cause CORS issues on web
-      final finalUrl = downloadUrl;
-      
-      print('IMAGE DEBUG: finalUrl = $finalUrl');
+      // Delete old image from Storage if exists
+      if (oldUrl.isNotEmpty) {
+        try {
+          final oldRef = FirebaseStorage.instance.refFromURL(oldUrl);
+          await oldRef.delete();
+          print('IMAGE: deleted old image from Storage');
+        } catch (e) {
+          print('IMAGE: could not delete old image: $e');
+        }
+      }
 
-      setState(() {
-        _profileImageUrl = finalUrl;
-        _profileImageStoragePath = storagePath;
-        _localProfileImageFile = pickedLocalFile;
-        _profileImageBytes = pickedBytes;
-        print('IMAGE DEBUG: setState called - _profileImageUrl set to: $_profileImageUrl');
-      });
+      if (mounted) {
+        setState(() {
+          _profileImageUrl = downloadUrl;
+          // Clear local previews so network image displays
+          _localProfileImageFile = null;
+          _webProfileImageBytes = null;
+        });
+      } else {
+        _profileImageUrl = downloadUrl;
+        _localProfileImageFile = null;
+        _webProfileImageBytes = null;
+      }
 
-      print('IMAGE DEBUG: Updating vets/$currentUserId with profileImageUrl');
+      // Save to Firestore
       await _firestore.collection('vets').doc(currentUserId).set(
         {
           'profileImageUrl': _profileImageUrl,
-          'profileImagePath': _profileImageStoragePath,
+          'updatedAt': FieldValue.serverTimestamp(),
         },
         SetOptions(merge: true),
       );
 
-      print('✅ PROFILE IMAGE SAVED TO FIRESTORE:');
-      print('   Collection: vets');
-      print('   Document: $currentUserId');
-      print('   Field: profileImageUrl');
-      print('   URL: $_profileImageUrl');
-      
-      // Verify by reading back
-      final verifyDoc = await _firestore.collection('vets').doc(currentUserId).get();
-      final verifiedUrl = verifyDoc.data()?['profileImageUrl'];
-      print('📖 VERIFIED: profileImageUrl from Firestore: $verifiedUrl');
-      
-      await _prefetchProfileImageBytes();
+      // Save to SharedPreferences for offline access (user-specific key)
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('profileImageUrl_$currentUserId', _profileImageUrl);
 
-      // Force UI refresh to display the new image
-      if (mounted) {
-        setState(() {
-          // _profileImageUrl is already set above, just trigger rebuild
-          print('🔄 UI: Triggering rebuild to display new image');
-        });
-      }
+      print('IMAGE: url saved to Firestore and SharedPreferences');
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -382,20 +339,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
         );
       }
     } catch (e, st) {
-      print('IMAGE DEBUG: Error in _pickImage: $e');
-      print('IMAGE DEBUG STACK: $st');
+      print('IMAGE ERROR: $e');
+      print('IMAGE STACK: $st');
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('⚠️ Failed to upload image: $e')),
         );
-      }
-
-      if (mounted) {
         setState(() {
           _localProfileImageFile = null;
-          _profileImageUrl = oldImageUrl;
+          _webProfileImageBytes = null;
+          _profileImageUrl = oldUrl;
         });
+      } else {
+        _localProfileImageFile = null;
+        _webProfileImageBytes = null;
+        _profileImageUrl = oldUrl;
       }
     }
   }
@@ -553,8 +512,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 const SizedBox(height: 20),
                 _editableField('License Number', licenseController),
                 const SizedBox(height: 20),
-                _editableField('Email (Read-Only)', emailController,
-                    readOnly: true),
+                _editableField(
+                  'Email (Read-Only)',
+                  emailController,
+                  readOnly: true,
+                ),
                 const SizedBox(height: 20),
                 _editableField('Location', locationController),
                 const SizedBox(height: 20),
@@ -666,119 +628,70 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildProfileAvatar() {
-    print('🖼️ AVATAR BUILD: _profileImageUrl = "$_profileImageUrl"');
-    print('🖼️ AVATAR BUILD: _profileImageStoragePath = "$_profileImageStoragePath"');
-    print('🖼️ AVATAR BUILD: _profileImageUrl.isNotEmpty = ${_profileImageUrl.isNotEmpty}');
-    print('🖼️ AVATAR BUILD: _localProfileImageFile = $_localProfileImageFile');
-    print('🖼️ AVATAR BUILD: _profileImageBytes is ${_profileImageBytes == null ? "NULL" : "SET (${_profileImageBytes!.lengthInBytes} bytes)"}');
-    print('🖼️ AVATAR BUILD: kIsWeb = $kIsWeb');
-    print('🖼️ AVATAR BUILD: _isProfileImageLoading = $_isProfileImageLoading');
-
     Widget imageWidget;
 
-    if (_localProfileImageFile != null && !kIsWeb) {
-      print('🖼️ AVATAR: Displaying local file image');
+    // Priority: local preview (mobile or web) then network URL then placeholder
+    if (!kIsWeb && _localProfileImageFile != null) {
       imageWidget = Image.file(
         _localProfileImageFile!,
         width: 120,
         height: 120,
         fit: BoxFit.cover,
       );
-    } else if (_profileImageBytes != null) {
-      print('🖼️ AVATAR: Displaying cached bytes image');
+    } else if (kIsWeb && _webProfileImageBytes != null) {
       imageWidget = Image.memory(
-        _profileImageBytes!,
+        _webProfileImageBytes!,
         width: 120,
         height: 120,
         fit: BoxFit.cover,
-        gaplessPlayback: true,
       );
     } else if (_profileImageUrl.isNotEmpty) {
-      print('🖼️ AVATAR: Will display CachedNetworkImage from: $_profileImageUrl');
-      
-      // For web, use Image.network instead of CachedNetworkImage
-      if (kIsWeb) {
-        print('🌐 AVATAR: Using Image.network for web');
-        print('🌐 AVATAR: Image URL = $_profileImageUrl');
-        imageWidget = Image.network(
-          _profileImageUrl,
-          key: ValueKey(_profileImageUrl), // Force rebuild when URL changes
-          width: 120,
-          height: 120,
-          fit: BoxFit.cover,
-          loadingBuilder: (context, child, loadingProgress) {
-            if (loadingProgress == null) {
-              print('✅ AVATAR: Image loaded successfully!');
-              return child;
-            }
-            final progress = loadingProgress.expectedTotalBytes != null
-                ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
-                : null;
-            print('🔄 AVATAR: Loading... ${(progress! * 100).toStringAsFixed(0)}%');
-            return const Center(child: CircularProgressIndicator(strokeWidth: 2.0));
-          },
-          errorBuilder: (context, error, stackTrace) {
-            print('❌ AVATAR: Failed to load image on web!');
-            print('❌ AVATAR ERROR: $error');
-            print('❌ AVATAR URL: $_profileImageUrl');
-            print('❌ AVATAR STACK: $stackTrace');
-            print('❌ AVATAR: Triggering bytes prefetch as fallback.');
-            _prefetchProfileImageBytes();
-            return Container(
-              width: 120,
-              height: 120,
-              color: Colors.grey[300],
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  const Icon(
-                    Icons.broken_image,
-                    size: 40,
-                    color: Colors.grey,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Failed to load',
-                    style: TextStyle(fontSize: 10, color: Colors.grey[600]),
-                  ),
-                ],
+      // Add cache-busting parameter to force fresh load after upload
+      final imageUrl = _profileImageUrl.contains('?')
+          ? _profileImageUrl
+          : '$_profileImageUrl?alt=media';
+
+      imageWidget = Image.network(
+        imageUrl,
+        width: 120,
+        height: 120,
+        fit: BoxFit.cover,
+        cacheWidth: 240, // 2x resolution for better quality
+        cacheHeight: 240,
+        loadingBuilder: (context, child, loadingProgress) {
+          if (loadingProgress == null) return child;
+          return Container(
+            width: 120,
+            height: 120,
+            color: Colors.grey[200],
+            child: Center(
+              child: CircularProgressIndicator(
+                value: loadingProgress.expectedTotalBytes != null
+                    ? loadingProgress.cumulativeBytesLoaded /
+                        loadingProgress.expectedTotalBytes!
+                    : null,
+                color: const Color(0xFF728D5A),
+                strokeWidth: 3.0,
               ),
-            );
-          },
-        );
-      } else {
-        print('📱 AVATAR: Using CachedNetworkImage for mobile');
-        imageWidget = CachedNetworkImage(
-          imageUrl: _profileImageUrl,
-          width: 120,
-          height: 120,
-          fit: BoxFit.cover,
-          placeholder: (_, __) {
-            print('🔄 AVATAR: Loading image...');
-            return const Center(child: CircularProgressIndicator(strokeWidth: 2.0));
-          },
-          errorWidget: (_, __, error) {
-            print('❌ AVATAR: Failed to load image: $error');
-            return Container(
-              width: 120,
-              height: 120,
-              color: Colors.grey[300],
-              child: const Icon(
-                Icons.broken_image,
-                size: 60,
-                color: Colors.grey,
-              ),
-            );
-          },
-        );
-      }
-    } else if (_isProfileImageLoading) {
-      print('🖼️ AVATAR: Image is loading, showing spinner');
-      imageWidget = const Center(
-        child: CircularProgressIndicator(strokeWidth: 2.0),
+            ),
+          );
+        },
+        errorBuilder: (context, error, stackTrace) {
+          print('IMAGE DISPLAY ERROR: $error');
+          print('IMAGE URL: $imageUrl');
+          return Container(
+            width: 120,
+            height: 120,
+            color: Colors.grey[300],
+            child: const Icon(
+              Icons.broken_image,
+              size: 60,
+              color: Colors.grey,
+            ),
+          );
+        },
       );
     } else {
-      print('🖼️ AVATAR: No image URL, showing placeholder icon');
       imageWidget = Container(
         width: 120,
         height: 120,
