@@ -8,12 +8,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
-// Import necessary screens
 import 'settings_screen.dart';
 import 'payment_option_screen.dart';
-// 🎯 REQUIRED: Import the new pricing screen
 import 'PricingManagementScreen.dart';
-import 'common_sidebar.dart'; 
+import 'common_sidebar.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -23,35 +21,35 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  // --- Controllers ---
+  // Text controllers
   final TextEditingController nameController = TextEditingController();
   final TextEditingController licenseController = TextEditingController();
   final TextEditingController emailController = TextEditingController();
   final TextEditingController locationController = TextEditingController();
   final TextEditingController clinicController = TextEditingController();
 
-  // --- Firebase/State Management ---
-  final _auth = FirebaseAuth.instance;
-  final _firestore = FirebaseFirestore.instance;
+  // Firebase
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+
   String get currentUserId => _auth.currentUser?.uid ?? '';
 
   static const String _specializationPlaceholder = 'Select Specialization';
   String specialization = _specializationPlaceholder;
-  
-  List<String> specializations = [
-    _specializationPlaceholder, 
+
+  final List<String> specializations = [
+    _specializationPlaceholder,
     'Pathology',
     'Behaviour',
     'Dermatology',
-    'General'
+    'General',
   ];
 
-  File? _localProfileImageFile; 
+  File? _localProfileImageFile;
   String _profileImageUrl = '';
   bool _isSaving = false;
-  bool _isLoading = true; 
+  bool _isLoading = true;
 
-  // --- Initial Profile Loading Logic ---
   @override
   void initState() {
     super.initState();
@@ -68,6 +66,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     super.dispose();
   }
 
+  // Load profile data from Firestore
   Future<void> _loadProfile() async {
     if (currentUserId.isEmpty) {
       if (mounted) setState(() => _isLoading = false);
@@ -75,35 +74,44 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
 
     try {
-      final userDoc = await _firestore.collection('vets').doc(currentUserId).get();
+      final doc =
+          await _firestore.collection('vets').doc(currentUserId).get();
 
-      if (userDoc.exists) {
-        final data = userDoc.data()!;
+      if (doc.exists) {
+        final data = doc.data()!;
         nameController.text = data['name'] ?? 'Dr. Sarah Doe';
         licenseController.text = data['license'] ?? '';
-        emailController.text = data['email'] ?? (_auth.currentUser?.email ?? 'sarah@vetclinic.com');
+        emailController.text =
+            data['email'] ?? (_auth.currentUser?.email ?? 'sarah@vetclinic.com');
         locationController.text = data['location'] ?? '';
         clinicController.text = data['clinic'] ?? '';
-        
+
         final loadedSpec = data['specialization'];
-        specialization = (loadedSpec != null && specializations.contains(loadedSpec))
-            ? loadedSpec
-            : _specializationPlaceholder;
+        specialization =
+            (loadedSpec != null && specializations.contains(loadedSpec))
+                ? loadedSpec
+                : _specializationPlaceholder;
 
         _profileImageUrl = data['profileImageUrl'] ?? '';
+        
+        print('📖 PROFILE LOADED FROM FIRESTORE:');
+        print('   User ID: $currentUserId');
+        print('   Name: ${nameController.text}');
+        print('   Profile Image URL: $_profileImageUrl');
+        print('   Image URL is ${_profileImageUrl.isEmpty ? "EMPTY" : "SET"}');
       } else {
         specialization = _specializationPlaceholder;
+        print('⚠️ No profile document found for user: $currentUserId');
       }
     } catch (e) {
-      print("Error loading profile: $e");
-      specialization = _specializationPlaceholder; 
+      print('PROFILE DEBUG: Error loading profile: $e');
+      specialization = _specializationPlaceholder;
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
   }
 
-
-  // --- Save Profile Logic ---
+  // Save vet profile to Firestore
   Future<void> _saveProfile() async {
     if (currentUserId.isEmpty) return;
     if (_isSaving) return;
@@ -112,7 +120,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text("⚠️ Please select a specialization before saving."),
+            content: Text('⚠️ Please select a specialization before saving.'),
             backgroundColor: Colors.orange,
             duration: Duration(seconds: 3),
           ),
@@ -135,27 +143,32 @@ class _ProfileScreenState extends State<ProfileScreen> {
         'updatedAt': FieldValue.serverTimestamp(),
       };
 
-      await _firestore.collection('vets').doc(currentUserId).set(dataToSave, SetOptions(merge: true));
+      await _firestore
+          .collection('vets')
+          .doc(currentUserId)
+          .set(dataToSave, SetOptions(merge: true));
 
-      // Save to SharedPreferences as backup/local cache
       final prefs = await SharedPreferences.getInstance();
-      dataToSave.forEach((key, value) async {
-        if (value is String) await prefs.setString(key, value);
-      });
+      for (final entry in dataToSave.entries) {
+        if (entry.value is String) {
+          await prefs.setString(entry.key, entry.value as String);
+        }
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text("✅ Profile saved successfully!"),
+            content: Text('✅ Profile saved successfully!'),
             backgroundColor: Color(0xFF6B8E23),
             duration: Duration(seconds: 2),
           ),
         );
       }
     } catch (e) {
+      print('PROFILE DEBUG: Error saving profile: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("⚠️ Failed to save profile: $e")),
+          SnackBar(content: Text('⚠️ Failed to save profile: $e')),
         );
       }
     } finally {
@@ -163,92 +176,135 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-  // --- Image Picking/Upload Logic ---
+  // Upload profile image to Firebase Storage
   Future<void> _pickImage() async {
-    if (currentUserId.isEmpty) return;
+    print('IMAGE DEBUG: _pickImage called');
+    print('IMAGE DEBUG: currentUserId = $currentUserId');
+
+    if (currentUserId.isEmpty) {
+      print('IMAGE DEBUG: User not logged in, aborting');
+      return;
+    }
 
     final picker = ImagePicker();
-    final pickedFile = await picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
-    if (pickedFile == null) return;
+    final pickedFile =
+        await picker.pickImage(source: ImageSource.gallery, imageQuality: 80);
+
+    if (pickedFile == null) {
+      print('IMAGE DEBUG: No image selected');
+      return;
+    }
 
     final String oldImageUrl = _profileImageUrl;
 
     try {
       setState(() {
         if (!kIsWeb) {
-          _localProfileImageFile = File(pickedFile.path); 
+          _localProfileImageFile = File(pickedFile.path);
         }
-        _profileImageUrl = ''; 
+        _profileImageUrl = '';
       });
-      
+
       final storageRef = FirebaseStorage.instance
           .ref()
           .child('vet_profile_images')
-          .child('$currentUserId/profile_${DateTime.now().millisecondsSinceEpoch}.jpg');
+          .child(
+            '$currentUserId/profile_${DateTime.now().millisecondsSinceEpoch}.jpg',
+          );
 
       UploadTask uploadTask;
       if (kIsWeb) {
         final bytes = await pickedFile.readAsBytes();
-        uploadTask = storageRef.putData(bytes, SettableMetadata(contentType: 'image/jpeg'));
+        uploadTask = storageRef.putData(
+          bytes,
+          SettableMetadata(contentType: 'image/jpeg'),
+        );
         _localProfileImageFile = null;
       } else {
         final file = File(pickedFile.path);
-        uploadTask = storageRef.putFile(file, SettableMetadata(contentType: 'image/jpeg'));
+        uploadTask = storageRef.putFile(
+          file,
+          SettableMetadata(contentType: 'image/jpeg'),
+        );
       }
 
+      print('IMAGE DEBUG: Starting upload');
       final snapshot = await uploadTask;
       final downloadUrl = await snapshot.ref.getDownloadURL();
-      
-      final finalUrl = "$downloadUrl?${DateTime.now().millisecondsSinceEpoch}"; 
+      print('IMAGE DEBUG: Upload complete, downloadUrl = $downloadUrl');
+
+      final finalUrl = '$downloadUrl?${DateTime.now().millisecondsSinceEpoch}';
 
       setState(() {
         _profileImageUrl = finalUrl;
-        _localProfileImageFile = null; 
+        _localProfileImageFile = null;
       });
 
-      await _firestore.collection('vets').doc(currentUserId).set({
-        'profileImageUrl': _profileImageUrl,
-      }, SetOptions(merge: true));
+      print('IMAGE DEBUG: Updating vets/$currentUserId with profileImageUrl');
+      await _firestore.collection('vets').doc(currentUserId).set(
+        {
+          'profileImageUrl': _profileImageUrl,
+        },
+        SetOptions(merge: true),
+      );
+
+      print('✅ PROFILE IMAGE SAVED TO FIRESTORE:');
+      print('   Collection: vets');
+      print('   Document: $currentUserId');
+      print('   Field: profileImageUrl');
+      print('   URL: $_profileImageUrl');
+      
+      // Verify by reading back
+      final verifyDoc = await _firestore.collection('vets').doc(currentUserId).get();
+      final verifiedUrl = verifyDoc.data()?['profileImageUrl'];
+      print('📖 VERIFIED: profileImageUrl from Firestore: $verifiedUrl');
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text("✅ Profile picture uploaded!"),
+            content: Text('✅ Profile picture uploaded and saved!'),
             backgroundColor: Color(0xFF6B8E23),
             duration: Duration(seconds: 2),
           ),
         );
       }
-    } catch (e) {
-      print("🚨 Error uploading image: $e");
+    } catch (e, st) {
+      print('IMAGE DEBUG: Error in _pickImage: $e');
+      print('IMAGE DEBUG STACK: $st');
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("⚠️ Failed to upload image: $e")),
+          SnackBar(content: Text('⚠️ Failed to upload image: $e')),
         );
       }
-      
+
       if (mounted) {
         setState(() {
-        _localProfileImageFile = null;
-        _profileImageUrl = oldImageUrl;
-      });
+          _localProfileImageFile = null;
+          _profileImageUrl = oldImageUrl;
+        });
       }
     }
   }
 
-  // --- Navigation & Helper Widgets ---
-
   void _navigateTo(Widget screen) {
-    // This uses pushReplacement for sidebar items, which clears the history.
-    // Use regular Navigator.push for screens that should allow going back
-    if (screen is SettingsScreen || screen is PricingManagementScreen || screen is PaymentOptionScreen) {
-        Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
+    if (screen is SettingsScreen ||
+        screen is PricingManagementScreen ||
+        screen is PaymentOptionScreen) {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => screen));
     } else {
-        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => screen));
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => screen),
+      );
     }
   }
 
-  Widget _editableField(String label, TextEditingController controller, {bool readOnly = false}) {
+  Widget _editableField(
+    String label,
+    TextEditingController controller, {
+    bool readOnly = false,
+  }) {
     return TextField(
       controller: controller,
       readOnly: readOnly,
@@ -256,36 +312,31 @@ class _ProfileScreenState extends State<ProfileScreen> {
         labelText: label,
         labelStyle: const TextStyle(fontWeight: FontWeight.w500),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       ),
     );
   }
-
-  
-  // --- Main Build Method ---
 
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
       return const Scaffold(
-        body: Center(child: CircularProgressIndicator(color: Color(0xFF728D5A))),
+        body: Center(
+          child: CircularProgressIndicator(color: Color(0xFF728D5A)),
+        ),
       );
     }
-    
+
     return Scaffold(
       body: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Sidebar
           const CommonSidebar(currentScreen: 'Profile'),
-
-          // Main content
           Expanded(
             child: Column(
               children: [
                 _buildHeader(),
-                
-                // Profile body
                 Expanded(
                   child: Container(
                     color: const Color(0xFFF8F9F5),
@@ -306,8 +357,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  // --- Extracted Widgets ---
-
   Widget _buildHeader() {
     return Container(
       width: double.infinity,
@@ -317,7 +366,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           const Text(
-            "Profile",
+            'Profile',
             style: TextStyle(
               fontSize: 28,
               fontWeight: FontWeight.bold,
@@ -328,7 +377,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             onPressed: () => _navigateTo(const PaymentOptionScreen()),
             icon: const Icon(Icons.star, color: Colors.white),
             label: const Text(
-              "Get Premium",
+              'Get Premium',
               style: TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.w600,
@@ -336,7 +385,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF6B8E23),
-              padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 18),
+              padding:
+                  const EdgeInsets.symmetric(vertical: 12, horizontal: 18),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(8),
               ),
@@ -364,7 +414,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Profile Image Upload Section
           Column(
             children: [
               _buildProfileAvatar(),
@@ -378,43 +427,47 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     borderRadius: BorderRadius.circular(8),
                   ),
                 ),
-                child: const Text("Upload Picture"),
+                child: const Text('Upload Picture'),
               ),
             ],
           ),
-
           const SizedBox(width: 50),
-
-          // Editable Fields
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _editableField("Full Name", nameController),
+                _editableField('Full Name', nameController),
                 const SizedBox(height: 20),
-                _editableField("License Number", licenseController),
+                _editableField('License Number', licenseController),
                 const SizedBox(height: 20),
-                // Email field is read-only
-                _editableField("Email (Read-Only)", emailController, readOnly: true), 
+                _editableField('Email (Read-Only)', emailController,
+                    readOnly: true),
                 const SizedBox(height: 20),
-                _editableField("Location", locationController),
+                _editableField('Location', locationController),
                 const SizedBox(height: 20),
-                _editableField("Clinic Name (optional)", clinicController),
+                _editableField('Clinic Name (optional)', clinicController),
                 const SizedBox(height: 30),
                 Center(
                   child: ElevatedButton.icon(
                     onPressed: _isSaving ? null : _saveProfile,
-                    icon: _isSaving ? const SizedBox(
-                      width: 20, 
-                      height: 20, 
-                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3.0),
-                    ) : const Icon(Icons.save),
-                    label: Text(_isSaving ? "Saving..." : "Save Changes"),
+                    icon: _isSaving
+                        ? const SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 3.0,
+                            ),
+                          )
+                        : const Icon(Icons.save),
+                    label: Text(_isSaving ? 'Saving...' : 'Save Changes'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF728D5A),
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(
-                          vertical: 14, horizontal: 24),
+                        vertical: 14,
+                        horizontal: 24,
+                      ),
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10),
                       ),
@@ -424,14 +477,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ],
             ),
           ),
-
           const SizedBox(width: 40),
-
-          // Specialization Dropdown and New Button
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // 1. Specialization Dropdown
               Container(
                 width: 200,
                 padding: const EdgeInsets.all(18),
@@ -444,19 +493,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     const Text(
-                      "Specialization",
+                      'Specialization',
                       style: TextStyle(fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 12),
                     DropdownButton<String>(
                       value: specialization,
                       isExpanded: true,
-                      underline: Container(), 
+                      underline: Container(),
                       items: specializations
-                          .map((spec) => DropdownMenuItem(
-                                value: spec,
-                                child: Text(spec),
-                              ))
+                          .map(
+                            (spec) => DropdownMenuItem(
+                              value: spec,
+                              child: Text(spec),
+                            ),
+                          )
                           .toList(),
                       onChanged: (value) {
                         if (value != null) {
@@ -467,17 +518,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ],
                 ),
               ),
-              
-              const SizedBox(height: 20), // Spacing between specialization and button
-
-              // 2. 🎯 NEW: Manage Rates Button (Below Specialization)
+              const SizedBox(height: 20),
               SizedBox(
                 width: 200,
                 child: ElevatedButton.icon(
-                  onPressed: () => _navigateTo(const PricingManagementScreen()),
+                  onPressed: () =>
+                      _navigateTo(const PricingManagementScreen()),
                   icon: const Icon(Icons.currency_exchange, size: 20),
                   label: const Text(
-                    "Manage Rates",
+                    'Manage Rates',
                     style: TextStyle(
                       fontWeight: FontWeight.w600,
                       fontSize: 14,
@@ -486,7 +535,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFFEAF086),
                     foregroundColor: Colors.black,
-                    padding: const EdgeInsets.symmetric(vertical: 15, horizontal: 10),
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 15,
+                      horizontal: 10,
+                    ),
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10),
                     ),
@@ -504,7 +556,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     Widget imageWidget;
 
     if (_localProfileImageFile != null && !kIsWeb) {
-      // 1. Local file preview (Non-web platforms only)
+      print('🖼️ AVATAR: Displaying local file image');
       imageWidget = Image.file(
         _localProfileImageFile!,
         width: 120,
@@ -512,24 +564,30 @@ class _ProfileScreenState extends State<ProfileScreen> {
         fit: BoxFit.cover,
       );
     } else if (_profileImageUrl.isNotEmpty) {
-      // 2. Network image from Firebase
+      print('🖼️ AVATAR: Displaying cached network image from: $_profileImageUrl');
       imageWidget = CachedNetworkImage(
         imageUrl: _profileImageUrl,
         width: 120,
         height: 120,
         fit: BoxFit.cover,
-        placeholder: (_, __) => const Center(child: CircularProgressIndicator(strokeWidth: 2.0)),
-        errorWidget: (_, __, ___) => Container(
-          color: Colors.white,
-          child: const Icon(
-            Icons.broken_image, // Changed to a less alarming icon for a profile
-            size: 60,
-            color: Colors.grey, 
-          ), 
-        ), 
+        placeholder: (_, __) {
+          print('🔄 AVATAR: Loading image...');
+          return const Center(child: CircularProgressIndicator(strokeWidth: 2.0));
+        },
+        errorWidget: (_, __, error) {
+          print('❌ AVATAR: Failed to load image: $error');
+          return Container(
+            color: Colors.white,
+            child: const Icon(
+              Icons.broken_image,
+              size: 60,
+              color: Colors.grey,
+            ),
+          );
+        },
       );
     } else {
-      // 3. Default/Placeholder Icon
+      print('🖼️ AVATAR: No image URL, showing placeholder icon');
       imageWidget = const Icon(
         Icons.person,
         size: 60,
