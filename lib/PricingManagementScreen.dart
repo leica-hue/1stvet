@@ -17,27 +17,18 @@ class _PricingManagementScreenState extends State<PricingManagementScreen> {
   String? _currentVetId;
   String get _collectionName => 'app_settings';
 
+  // Services must be added by the vet - no defaults
   final Map<String, dynamic> _defaultRates = {
-    'consultation_fee_php': 800.00,
-    'urgent_surcharge_php': 500.00,
-    'dog_vaccination_rates': {
-      'puppy_vaccination': 1500.00,
-      'adult_booster': 1200.00,
-    },
-    'cat_vaccination_rates': {
-      'kitten_vaccination': 1000.00,
-      'adult_booster': 800.00,
-    },
-    'deworming_rates': {
-      'small_pet': 300.00,
-      'large_pet': 550.00,
-    },
-    'custom_services': {},
+    'dog_vaccination_rates': {},   // Empty - vet adds their own services
+    'cat_vaccination_rates': {},   // Empty - vet adds their own services
+    'deworming_rates': {},         // Empty - vet adds their own services
+    'custom_services': {},         // Empty - vet adds their own services
   };
 
   final Map<String, TextEditingController> _controllers = {};
   final Map<String, String> _originalValues = {};
   final Set<String> _savingFields = {};
+  bool _hasRemovedDefaults = false; // Flag to ensure we only remove defaults once
 
   @override
   void initState() {
@@ -111,6 +102,52 @@ class _PricingManagementScreenState extends State<PricingManagementScreen> {
       '$baseField.$name': FieldValue.delete(),
       'updatedAt': FieldValue.serverTimestamp(),
     });
+  }
+
+  // Detect and remove old default services and fixed fees
+  Future<void> _removeDefaultServices() async {
+    if (_currentVetId == null) return;
+    
+    final docRef = _firestore.collection(_collectionName).doc(_ratesDocId);
+    final docSnapshot = await docRef.get();
+    if (!docSnapshot.exists) return;
+    
+    final data = _convertToMapStringDynamic(docSnapshot.data());
+    final Map<String, dynamic> updates = {};
+    bool hasChanges = false;
+    
+    // Remove fixed fees fields
+    if (data.containsKey('consultation_fee_php')) {
+      updates['consultation_fee_php'] = FieldValue.delete();
+      hasChanges = true;
+    }
+    if (data.containsKey('urgent_surcharge_php')) {
+      updates['urgent_surcharge_php'] = FieldValue.delete();
+      hasChanges = true;
+    }
+    
+    // Old default service keys to remove
+    final defaultServiceKeys = {
+      'dog_vaccination_rates': ['puppy_vaccination', 'adult_booster'],
+      'cat_vaccination_rates': ['kitten_vaccination', 'adult_booster'],
+      'deworming_rates': ['small_pet', 'large_pet'],
+    };
+    
+    // Check and mark default services for removal
+    defaultServiceKeys.forEach((category, keys) {
+      final categoryData = _convertToMapStringDynamic(data[category]);
+      keys.forEach((key) {
+        if (categoryData.containsKey(key)) {
+          updates['$category.$key'] = FieldValue.delete();
+          hasChanges = true;
+        }
+      });
+    });
+    
+    if (hasChanges) {
+      updates['updatedAt'] = FieldValue.serverTimestamp();
+      await docRef.update(updates);
+    }
   }
 
   void _showAddServiceDialog(Map<String, dynamic> rates) {
@@ -283,93 +320,6 @@ class _PricingManagementScreenState extends State<PricingManagementScreen> {
     return result;
   }
 
-  Widget _buildPriceInputTile({
-    required String title,
-    required String subtitle,
-    required String firestoreField,
-    required String initialValue,
-    IconData icon = Icons.info_outline,
-  }) {
-    if (!_controllers.containsKey(firestoreField)) {
-      _controllers[firestoreField] = TextEditingController(text: initialValue);
-      _originalValues[firestoreField] = initialValue;
-    }
-
-    final controller = _controllers[firestoreField]!;
-    final isSaving = _savingFields.contains(firestoreField);
-    final isModified = controller.text != _originalValues[firestoreField];
-
-    return Card(
-      elevation: 4,
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-        side: BorderSide(
-          color: isModified ? const Color(0xFFEAF086) : Colors.transparent,
-          width: 2,
-        ),
-      ),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 15, horizontal: 20),
-        child: Row(
-          children: [
-            Icon(icon, color: const Color(0xFF728D5A), size: 32),
-            const SizedBox(width: 20),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title,
-                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 17, color: Colors.black87)),
-                  const SizedBox(height: 4),
-                  Text(subtitle, style: TextStyle(color: Colors.grey[600], fontSize: 13)),
-                ],
-              ),
-            ),
-            const SizedBox(width: 15),
-            SizedBox(
-              width: 120,
-              child: TextField(
-                controller: controller,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                textAlign: TextAlign.right,
-                style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 18, color: Color(0xFF6B8E23)),
-                inputFormatters: [
-                  FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')),
-                ],
-                decoration: InputDecoration(
-                  prefixText: '₱ ',
-                  border: InputBorder.none,
-                  filled: true,
-                  fillColor: Colors.grey[50],
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                ),
-                onChanged: (_) => setState(() {}),
-              ),
-            ),
-            SizedBox(
-              width: 40,
-              child: isSaving
-                  ? const Center(
-                      child: SizedBox(
-                        width: 24,
-                        height: 24,
-                        child: CircularProgressIndicator(strokeWidth: 3, color: Color(0xFF728D5A)),
-                      ),
-                    )
-                  : (isModified
-                      ? IconButton(
-                          icon: const Icon(Icons.check_circle, color: Color(0xFF6B8E23), size: 28),
-                          onPressed: () => _updatePrice(firestoreField, controller.text),
-                        )
-                      : const SizedBox.shrink()),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildDynamicServiceTile({
     required String title,
     required String baseFirestoreField,
@@ -499,16 +449,35 @@ class _PricingManagementScreenState extends State<PricingManagementScreen> {
               }
 
               final Map<String, dynamic> snapshotData = _convertToMapStringDynamic(snapshot.data?.data());
-              final ratesData = snapshotData.isNotEmpty ? snapshotData : _defaultRates;
+              
+              // Remove fixed fees from data immediately (don't display them)
+              final cleanedData = Map<String, dynamic>.from(snapshotData);
+              cleanedData.remove('consultation_fee_php');
+              cleanedData.remove('urgent_surcharge_php');
+              final ratesData = cleanedData.isNotEmpty ? cleanedData : _defaultRates;
 
               if (snapshotData.isEmpty && snapshot.data?.exists == false) {
                 WidgetsBinding.instance.addPostFrameCallback((_) {
-                  _firestore.collection(_collectionName).doc(_ratesDocId).set(_defaultRates);
+                  _firestore.collection(_collectionName).doc(_ratesDocId).set({
+                    'vetId': _currentVetId,
+                    'dog_vaccination_rates': {},
+                    'cat_vaccination_rates': {},
+                    'deworming_rates': {},
+                    'custom_services': {},
+                    'createdAt': FieldValue.serverTimestamp(),
+                    'updatedAt': FieldValue.serverTimestamp(),
+                  });
                 });
               }
 
-              final consultFee = _formatPrice(ratesData['consultation_fee_php']);
-              final urgentSurcharge = _formatPrice(ratesData['urgent_surcharge_php']);
+              // Automatically remove old default services and fixed fees on first load (only once)
+              if (!_hasRemovedDefaults) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  _removeDefaultServices().then((_) {
+                    _hasRemovedDefaults = true;
+                  });
+                });
+              }
 
               // Handle migration from old 'vaccination_rates' structure if it exists
               if (ratesData.containsKey('vaccination_rates') && 
@@ -544,31 +513,58 @@ class _PricingManagementScreenState extends State<PricingManagementScreen> {
               final customServices =
                   _convertToMapStringDynamic(ratesData['custom_services'] ?? _defaultRates['custom_services']);
 
+              // Check if vet has added any services yet
+              final hasAnyServices = dogVaccinationRates.isNotEmpty ||
+                  catVaccinationRates.isNotEmpty ||
+                  dewormingRates.isNotEmpty ||
+                  customServices.isNotEmpty;
+
               return ListView(
                 padding: const EdgeInsets.only(bottom: 80),
                 children: [
+                  // Helpful banner for new vets
+                  if (!hasAnyServices)
+                    Container(
+                      margin: const EdgeInsets.all(16.0),
+                      padding: const EdgeInsets.all(16.0),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEAF086),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFF728D5A), width: 2),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.info_outline, color: Color(0xFF6B8E23), size: 32),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Get Started',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 16,
+                                    color: Colors.black87,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  'Add your services using the "Add Service" button below.',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: Colors.grey[800],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   const Padding(
                     padding: EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 8.0),
-                    child: Text('Fixed Fees',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
-                  ),
-                  _buildPriceInputTile(
-                    title: 'Initial Consultation Fee',
-                    subtitle: 'Base cost for general appointments.',
-                    firestoreField: 'consultation_fee_php',
-                    initialValue: consultFee,
-                    icon: Icons.monitor_heart_outlined,
-                  ),
-                  _buildPriceInputTile(
-                    title: 'Urgent Care Surcharge',
-                    subtitle: 'Added for emergency or after-hours visits.',
-                    firestoreField: 'urgent_surcharge_php',
-                    initialValue: urgentSurcharge,
-                    icon: Icons.warning_amber_rounded,
-                  ),
-                  const Padding(
-                    padding: EdgeInsets.fromLTRB(16.0, 24.0, 16.0, 8.0),
-                    child: Text('Tiered Services',
+                    child: Text('Services',
                         style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
                   ),
                   _buildDynamicServiceTile(
