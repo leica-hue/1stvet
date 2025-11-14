@@ -258,6 +258,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
       final verifyDoc = await _firestore.collection('vets').doc(currentUserId).get();
       final verifiedUrl = verifyDoc.data()?['profileImageUrl'];
       print('📖 VERIFIED: profileImageUrl from Firestore: $verifiedUrl');
+      
+      // Force UI refresh to display the new image
+      if (mounted) {
+        setState(() {
+          // _profileImageUrl is already set above, just trigger rebuild
+          print('🔄 UI: Triggering rebuild to display new image');
+        });
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -553,6 +561,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _buildProfileAvatar() {
+    print('🖼️ AVATAR BUILD: _profileImageUrl = "$_profileImageUrl"');
+    print('🖼️ AVATAR BUILD: _profileImageUrl.isNotEmpty = ${_profileImageUrl.isNotEmpty}');
+    print('🖼️ AVATAR BUILD: _localProfileImageFile = $_localProfileImageFile');
+    print('🖼️ AVATAR BUILD: kIsWeb = $kIsWeb');
+    
     Widget imageWidget;
 
     if (_localProfileImageFile != null && !kIsWeb) {
@@ -564,34 +577,76 @@ class _ProfileScreenState extends State<ProfileScreen> {
         fit: BoxFit.cover,
       );
     } else if (_profileImageUrl.isNotEmpty) {
-      print('🖼️ AVATAR: Displaying cached network image from: $_profileImageUrl');
-      imageWidget = CachedNetworkImage(
-        imageUrl: _profileImageUrl,
-        width: 120,
-        height: 120,
-        fit: BoxFit.cover,
-        placeholder: (_, __) {
-          print('🔄 AVATAR: Loading image...');
-          return const Center(child: CircularProgressIndicator(strokeWidth: 2.0));
-        },
-        errorWidget: (_, __, error) {
-          print('❌ AVATAR: Failed to load image: $error');
-          return Container(
-            color: Colors.white,
-            child: const Icon(
-              Icons.broken_image,
-              size: 60,
-              color: Colors.grey,
-            ),
-          );
-        },
-      );
+      print('🖼️ AVATAR: Will display CachedNetworkImage from: $_profileImageUrl');
+      
+      // For web, use Image.network instead of CachedNetworkImage
+      if (kIsWeb) {
+        print('🌐 AVATAR: Using Image.network for web');
+        imageWidget = Image.network(
+          _profileImageUrl,
+          width: 120,
+          height: 120,
+          fit: BoxFit.cover,
+          loadingBuilder: (context, child, loadingProgress) {
+            if (loadingProgress == null) {
+              print('✅ AVATAR: Image loaded successfully');
+              return child;
+            }
+            print('🔄 AVATAR: Loading... ${loadingProgress.cumulativeBytesLoaded} / ${loadingProgress.expectedTotalBytes}');
+            return const Center(child: CircularProgressIndicator(strokeWidth: 2.0));
+          },
+          errorBuilder: (context, error, stackTrace) {
+            print('❌ AVATAR: Failed to load image on web: $error');
+            print('❌ AVATAR ERROR STACK: $stackTrace');
+            return Container(
+              width: 120,
+              height: 120,
+              color: Colors.grey[300],
+              child: const Icon(
+                Icons.broken_image,
+                size: 60,
+                color: Colors.grey,
+              ),
+            );
+          },
+        );
+      } else {
+        print('📱 AVATAR: Using CachedNetworkImage for mobile');
+        imageWidget = CachedNetworkImage(
+          imageUrl: _profileImageUrl,
+          width: 120,
+          height: 120,
+          fit: BoxFit.cover,
+          placeholder: (_, __) {
+            print('🔄 AVATAR: Loading image...');
+            return const Center(child: CircularProgressIndicator(strokeWidth: 2.0));
+          },
+          errorWidget: (_, __, error) {
+            print('❌ AVATAR: Failed to load image: $error');
+            return Container(
+              width: 120,
+              height: 120,
+              color: Colors.grey[300],
+              child: const Icon(
+                Icons.broken_image,
+                size: 60,
+                color: Colors.grey,
+              ),
+            );
+          },
+        );
+      }
     } else {
       print('🖼️ AVATAR: No image URL, showing placeholder icon');
-      imageWidget = const Icon(
-        Icons.person,
-        size: 60,
-        color: Colors.white,
+      imageWidget = Container(
+        width: 120,
+        height: 120,
+        color: const Color(0xFFBBD29C),
+        child: const Icon(
+          Icons.person,
+          size: 60,
+          color: Colors.white,
+        ),
       );
     }
 
