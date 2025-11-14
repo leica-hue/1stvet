@@ -197,17 +197,26 @@ class _PaymentProofScreenState extends State<PaymentProofScreen> {
     if (screenshotUrl == null) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Upload failed. Please try again.')),
+        const SnackBar(
+          content: Text('Upload failed. Check console for details.'),
+          backgroundColor: AppColors.secondaryRed,
+          duration: Duration(seconds: 5),
+        ),
       );
       return;
     }
+    
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Screenshot uploaded: ${screenshotUrl.substring(0, 50)}...')),
+    );
 
     try {
       // 3. Calculate New Premium End Date using the fetched ID
       final newPremiumUntil = await _calculateNewPremiumUntil(currentvetId);
 
       // --- A. Write data to 'payment' collection (Verification record) ---
-      await FirebaseFirestore.instance.collection('payment').add({
+      final paymentData = {
         'vetId': currentvetId,
         'transactionId': _transactionIdController.text.trim(),
         'notes': _notesController.text.trim(),
@@ -217,7 +226,26 @@ class _PaymentProofScreenState extends State<PaymentProofScreen> {
         'submissionTime': FieldValue.serverTimestamp(),
         'adminVerifiedBy': '',
         'premiumUntilCalculated': Timestamp.fromDate(newPremiumUntil),
-      });
+      };
+      
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Saving to collection: payment (vetId: $currentvetId)'),
+          duration: const Duration(seconds: 3),
+        ),
+      );
+      
+      final docRef = await FirebaseFirestore.instance.collection('payment').add(paymentData);
+      
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('✅ Payment doc created! ID: ${docRef.id}'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 4),
+        ),
+      );
 
       // --- B. Update the 'vets' collection (Immediate Activation) ---
       await FirebaseFirestore.instance.collection('vets').doc(currentvetId).set({
