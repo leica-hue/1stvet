@@ -616,3 +616,4 @@ class _PricingManagementScreenState extends State<PricingManagementScreen> {
     );
   }
 }
+ 
