@@ -208,7 +208,7 @@ class _PaymentProofScreenState extends State<PaymentProofScreen> {
 
       // --- A. Write data to 'payment' collection (Verification record) ---
       await FirebaseFirestore.instance.collection('payment').add({
-        'vetId': currentvetId, // <<< DYNAMICALLY FETCHED ID USED HERE
+        'vetId': currentvetId,
         'transactionId': _transactionIdController.text.trim(),
         'notes': _notesController.text.trim(),
         'screenshotUrl': screenshotUrl,
@@ -216,14 +216,14 @@ class _PaymentProofScreenState extends State<PaymentProofScreen> {
         'status': 'Pending',
         'submissionTime': FieldValue.serverTimestamp(),
         'adminVerifiedBy': '',
-        'premiumUntilCalculated': newPremiumUntil,
+        'premiumUntilCalculated': Timestamp.fromDate(newPremiumUntil),
       });
 
       // --- B. Update the 'vets' collection (Immediate Activation) ---
-      await FirebaseFirestore.instance.collection('vets').doc(currentvetId).set({ // <<< DYNAMICALLY FETCHED ID USED HERE
+      await FirebaseFirestore.instance.collection('vets').doc(currentvetId).set({
         'isPremium': true,
         'premiumSince': FieldValue.serverTimestamp(),
-        'premiumUntil': newPremiumUntil, 
+        'premiumUntil': Timestamp.fromDate(newPremiumUntil), 
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
@@ -240,10 +240,22 @@ class _PaymentProofScreenState extends State<PaymentProofScreen> {
       Navigator.pop(context);
 
     } on FirebaseException catch (e) {
-      print('Firestore Submission Error: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Submission failed: ${e.message}')),
+        SnackBar(
+          content: Text('Firebase error: ${e.code} - ${e.message}'),
+          backgroundColor: AppColors.secondaryRed,
+          duration: const Duration(seconds: 5),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error: $e'),
+          backgroundColor: AppColors.secondaryRed,
+          duration: const Duration(seconds: 5),
+        ),
       );
     }
   }
