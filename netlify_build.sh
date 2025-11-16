@@ -3,13 +3,10 @@ set -e
 #!/usr/bin/env bash
 set -e
 
-# Install Flutter SDK (idempotent: reuse if already cloned)
+# Install Flutter SDK (always fresh clone to avoid cache conflicts)
 echo "Setting up Flutter SDK..."
-if [ ! -d "flutter" ]; then
-  git clone https://github.com/flutter/flutter.git -b stable --depth 1
-else
-  echo "Flutter directory already exists, reusing cached SDK."
-fi
+rm -rf flutter
+git clone https://github.com/flutter/flutter.git -b stable --depth 1
 export PATH="$PWD/flutter/bin:$PATH"
 
 echo "Enabling Flutter web and running doctor..."
