@@ -4,10 +4,3 @@
 
 [build.environment]
   NODE_VERSION = "18"
-
-[build]
-  command = "bash netlify_build.sh"
-  publish = "build/web"
-
-[build.environment]
-  NODE_VERSION = "18"
