@@ -66,6 +66,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   final user = FirebaseAuth.instance.currentUser;
 
+  // Theme colors (kept on-brand)
+  final Color _headerColor = const Color(0xFFBDD9A4);
+  final Color _primaryGreen = const Color(0xFF728D5A);
+  final Color _chipGreen = const Color(0xFF9DBD81);
+
   StreamSubscription? _ratingSubscription;
 
   double _averagerating = 0.0;
@@ -386,18 +391,41 @@ class _DashboardScreenState extends State<DashboardScreen> {
             child: Container(
               color: const Color(0xFFF8F9F5), // Light background color for the main area
               child: _isLoading
-                  ? const Center(child: CircularProgressIndicator(color: Color(0xFF728D5A)))
+                  ? Center(child: CircularProgressIndicator(color: _primaryGreen))
                   : Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Container(
-                          color: const Color(0xFFBDD9A4),
-                          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
-                          child: const Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 22),
+                          decoration: BoxDecoration(
+                            color: _headerColor,
+                            borderRadius: const BorderRadius.only(
+                              bottomLeft: Radius.circular(16),
+                              bottomRight: Radius.circular(16),
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.08),
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: Row(
                             children: [
-                              Text('Dashboard',
-                                  style: TextStyle(fontSize: 26, fontWeight: FontWeight.bold)),
+                              Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                padding: const EdgeInsets.all(10),
+                                child: Icon(Icons.dashboard_rounded, color: _primaryGreen, size: 26),
+                              ),
+                              const SizedBox(width: 12),
+                              const Text(
+                                'Dashboard',
+                                style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800),
+                              ),
                             ],
                           ),
                         ),
@@ -501,58 +529,89 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Widget _buildProfileHeader() {
+    final bool isDeactivated = _vetStatus.contains('Deactivated');
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Deactivation Banner
-        if (_vetStatus.contains('Deactivated'))
+        if (isDeactivated)
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(12),
             margin: const EdgeInsets.only(bottom: 12),
             decoration: BoxDecoration(
-              color: Colors.red.shade300,
-              borderRadius: BorderRadius.circular(8),
+              color: Colors.red.shade400,
+              borderRadius: BorderRadius.circular(10),
             ),
             child: const Text(
               'Your account is deactivated. You are marked as unavailable.',
               style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
             ),
           ),
-
-        Row(
-          children: [
-            CircleAvatar(
-              radius: 32,
-              backgroundColor: Colors.grey.shade300,
-              child: ClipOval(child: _buildProfileImage()),
-            ),
-            const SizedBox(width: 20),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(_name.isNotEmpty ? 'Dr. $_name' : 'Vet Name', style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                Text(_location.isNotEmpty ? _location : 'Location not set'),
-                Text(_specialization.isNotEmpty ? _specialization : 'Specialization not set', style: const TextStyle(color: Colors.black87)),
-                const SizedBox(height: 6),
-                Text('Status: $_vetStatus',
-                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black87)),
-              ],
-            ),
-            const Spacer(),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFFEAF086),
-                foregroundColor: Colors.black,
+        Container(
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: Colors.grey.shade200),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.06),
+                blurRadius: 10,
+                offset: const Offset(0, 6),
               ),
-              onPressed: () async {
-                await Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen()));
-                // Reload all data to catch profile changes
-                await _loadAllData();
-              },
-              child: const Text('Edit Profile'),
-            ),
-          ],
+            ],
+          ),
+          padding: const EdgeInsets.all(18),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius: 36,
+                backgroundColor: Colors.grey.shade300,
+                child: ClipOval(child: _buildProfileImage()),
+              ),
+              const SizedBox(width: 18),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _name.isNotEmpty ? 'Dr. $_name' : 'Vet Name',
+                      style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        _infoChip(_location.isNotEmpty ? _location : 'Location not set'),
+                        _infoChip(_specialization.isNotEmpty ? _specialization : 'Specialization not set'),
+                        _statusChip(
+                          _vetStatus,
+                          isAvailable: _vetStatus.toLowerCase().contains('available') &&
+                              !_vetStatus.toLowerCase().contains('unavailable'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: _primaryGreen,
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                onPressed: () async {
+                  await Navigator.push(context, MaterialPageRoute(builder: (_) => const ProfileScreen()));
+                  await _loadAllData();
+                },
+                icon: const Icon(Icons.edit, size: 18),
+                label: const Text('Edit Profile'),
+              ),
+            ],
+          ),
         ),
       ],
     );
@@ -583,9 +642,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
             Expanded(
               flex: 3,
               child: todayAppointments.isEmpty
-                  ? const Center(
-                      child: Text("No appointments today.",
-                          style: TextStyle(fontSize: 16, color: Colors.grey)),
+                  ? Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 32),
+                      alignment: Alignment.center,
+                      child: Text(
+                        "No appointments today.",
+                        style: TextStyle(fontSize: 16, color: Colors.grey.shade600),
+                      ),
                     )
                   : Column(
                       children: todayAppointments.map((appt) => _appointmentCard(appt)).toList(),
@@ -604,23 +668,26 @@ class _DashboardScreenState extends State<DashboardScreen> {
     Color statusColor;
     switch (appt.status.toLowerCase()) {
       case "confirmed":
-        statusColor = Colors.green;
+        statusColor = Colors.green.shade700;
         break;
       case "declined":
-        statusColor = Colors.red;
+        statusColor = Colors.red.shade700;
         break;
       case "completed":
-        statusColor = Colors.blue;
+        statusColor = Colors.blue.shade700;
         break;
       case "cancelled":
         statusColor = const Color.fromARGB(255, 243, 34, 198);
         break;
       default:
-        statusColor = Colors.yellow.shade700;
+        statusColor = Colors.amber.shade700;
     }
 
     return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: Colors.grey.shade200),
+      ),
       elevation: 1,
       margin: const EdgeInsets.only(bottom: 16),
       child: Padding(
@@ -628,16 +695,16 @@ class _DashboardScreenState extends State<DashboardScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(appt.petName, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+            Text(appt.petName, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
             const SizedBox(height: 10),
             Row(children: [
-              const Icon(Icons.access_time),
+              Icon(Icons.access_time, color: Colors.grey.shade700, size: 18),
               const SizedBox(width: 6),
               Text(appt.timeSlot)
             ]),
             const SizedBox(height: 6),
             Row(children: [
-              const Icon(Icons.person),
+              Icon(Icons.person, color: Colors.grey.shade700, size: 18),
               const SizedBox(width: 6),
               Text(appt.userName)
             ]),
@@ -645,23 +712,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                TextButton(onPressed: () async {
-                  await Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) => AppointmentsPage(appointmentDoc: appt),
-                    ),
-                  );
-                  await _loadAppointments();
-                }, child: const Text('View Details')),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: statusColor.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(appt.status, style: TextStyle(color: statusColor)),
-                )
+                TextButton.icon(
+                  onPressed: () async {
+                    await Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => AppointmentsPage(appointmentDoc: appt),
+                      ),
+                    );
+                    await _loadAppointments();
+                  },
+                  icon: Icon(Icons.open_in_new, color: _primaryGreen, size: 18),
+                  label: Text('View Details', style: TextStyle(color: _primaryGreen, fontWeight: FontWeight.w700)),
+                ),
+                _statusPill(appt.status, statusColor),
               ],
             ),
           ],
@@ -680,26 +744,39 @@ class _DashboardScreenState extends State<DashboardScreen> {
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: Colors.white,
-            border: Border.all(color: Colors.grey.shade300),
-            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey.shade200),
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 10,
+                offset: const Offset(0, 6),
+              ),
+            ],
           ),
           child: Column(
             children: [
               Text(
                 _averagerating.toStringAsFixed(1),
-                style: const TextStyle(fontSize: 42, fontWeight: FontWeight.bold),
+                style: const TextStyle(fontSize: 42, fontWeight: FontWeight.w800),
               ),
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  const Icon(Icons.star, color: Color(0xFF728D5A), size: 30),
+                  Icon(Icons.star, color: _primaryGreen, size: 28),
                   const SizedBox(width: 4),
                   Text(
-                    'Overall Rating', // Displays the current review count
-                    style: TextStyle(color: Colors.grey.shade700),
+                    'Overall Rating',
+                    style: TextStyle(color: Colors.grey.shade700, fontWeight: FontWeight.w600),
                   ),
                 ],
               ),
+              const SizedBox(height: 6),
+              if (_ratingCount > 0)
+                Text(
+                  'Based on $_ratingCount reviews',
+                  style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
+                ),
             ],
           ),
         ),
@@ -710,25 +787,32 @@ class _DashboardScreenState extends State<DashboardScreen> {
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: Colors.white,
-            border: Border.all(color: Colors.grey.shade300),
-            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.grey.shade200),
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.05),
+                blurRadius: 10,
+                offset: const Offset(0, 6),
+              ),
+            ],
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 'Appointment Summary (Total: ${confirmedCount + pendingCount + declinedCount + completedCount + cancelledCount})',
-                style: const TextStyle(fontWeight: FontWeight.bold),
+                style: const TextStyle(fontWeight: FontWeight.w800),
               ),
               const SizedBox(height: 12),
               Wrap(
                 spacing: 16,
                 runSpacing: 12,
                 children: [
-                  _statusCount('Pending', pendingCount, color: Colors.orange),
-                  _statusCount('Confirmed', confirmedCount, color: Colors.green),
-                  _statusCount('Declined', declinedCount, color: Colors.red),
-                  _statusCount('Completed', completedCount, color: Colors.blue),
+                  _statusCount('Pending', pendingCount, color: Colors.amber.shade700),
+                  _statusCount('Confirmed', confirmedCount, color: Colors.green.shade700),
+                  _statusCount('Declined', declinedCount, color: Colors.red.shade700),
+                  _statusCount('Completed', completedCount, color: Colors.blue.shade700),
                   _statusCount('Cancelled', cancelledCount,
                       color: const Color.fromARGB(255, 247, 0, 255)),
                 ],
@@ -737,6 +821,73 @@ class _DashboardScreenState extends State<DashboardScreen> {
           ),
         ),
       ],
+    );
+  }
+
+  // --- Small UI helpers ---
+  Widget _infoChip(String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade100,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: Colors.grey.shade300),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontWeight: FontWeight.w700,
+          color: Colors.grey.shade800,
+          fontSize: 12,
+        ),
+      ),
+    );
+  }
+
+  Widget _statusChip(String label, {required bool isAvailable}) {
+    // Red if unavailable, green if available.
+    final Color color = isAvailable ? _chipGreen : Colors.red.shade600;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+              color: color,
+              fontSize: 12,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _statusPill(String label, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(fontWeight: FontWeight.w800, color: color, fontSize: 12),
+      ),
     );
   }
 

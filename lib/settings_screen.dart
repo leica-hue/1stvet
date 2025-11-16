@@ -16,7 +16,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   String _vetStatus = 'Loading...';
   final List<String> _statusOptions = ['Available', 'Unavailable'];
-  bool _isInactive = false;
 
   @override
   void initState() {
@@ -30,12 +29,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
     final doc = await _firestore.collection('vets').doc(user!.uid).get();
     if (doc.exists) {
       final data = doc.data();
-      final inactive = data?['inactive'] ?? false;
       final status = data?['status'] ?? 'Available';
       if (!mounted) return;
       setState(() {
-        _isInactive = inactive;
-        _vetStatus = inactive ? 'Unavailable (Deactivated)' : status;
+        _vetStatus = status;
       });
     } else {
       if (!mounted) return;
@@ -65,29 +62,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  Future<void> _setInactive(bool value) async {
-    if (user == null) return;
-    try {
-      await _firestore.collection('vets').doc(user!.uid).update({'inactive': value});
-      if (!mounted) return;
-      setState(() {
-        _isInactive = value;
-        _vetStatus = value ? 'Unavailable (Deactivated)' : 'Available';
-      });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(value ? 'Account deactivated' : 'Account reactivated'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text('Failed to update account status: $e'),
-            backgroundColor: Colors.red),
-      );
-    }
-  }
+  // Deactivate account feature removed
 
   // --- PASSWORD CHANGE IMPLEMENTATION ---
 
@@ -323,56 +298,153 @@ Future<String?> _showNewPasswordDialog() async {
                 // Header
                 Container(
                   width: double.infinity,
-                  color: const Color(0xFFBDD9A4),
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-                  child: const Text(
-                    'Settings',
-                    style: TextStyle(
-                      fontSize: 28,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black,
+                  padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 22),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFBDD9A4),
+                    borderRadius: const BorderRadius.only(
+                      bottomLeft: Radius.circular(16),
+                      bottomRight: Radius.circular(16),
                     ),
-      ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.08),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        padding: const EdgeInsets.all(10),
+                        child: const Icon(Icons.settings, color: Color(0xFF728D5A), size: 26),
+                      ),
+                      const SizedBox(width: 12),
+                      const Text(
+                        'Settings',
+                        style: TextStyle(
+                          fontSize: 26,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.black,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
                 
                 // Settings content
                 Expanded(
                   child: ListView(
-        padding: const EdgeInsets.all(20),
-        children: [
-          const Text('Account', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-          const SizedBox(height: 10),
-          ListTile(
-            leading: const Icon(Icons.lock),
-            title: const Text('Change Password'),
-            onTap: _changePassword, 
-          ),
-          const Divider(height: 30),
-          const Text('Vet Status', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-          const SizedBox(height: 10),
-          ListTile(
-            leading: const Icon(Icons.circle),
-            title: const Text('Availability'),
-            trailing: DropdownButton<String>(
-              value: _statusOptions.contains(_vetStatus) ? _vetStatus : 'Available',
-              items: _statusOptions
-                  .map((status) => DropdownMenuItem(value: status, child: Text(status)))
-                  .toList(),
-              onChanged: (value) {
-                if (value != null) _updateStatus(value);
-              },
-            ),
-          ),
-          ListTile(
-            leading: const Icon(Icons.delete_forever),
-            title: const Text('Delete Account'),
-            onTap: () => _confirmAction(
-              'Delete Account',
-              'This action is permanent and irreversible. Your data will be deleted. Do you really want to proceed?',
-              _deleteAccount,
-            ),
-          ),
-        ],
+                    padding: const EdgeInsets.all(24),
+                    children: [
+                      // Account section
+                      Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: Colors.grey.shade200),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.05),
+                              blurRadius: 10,
+                              offset: const Offset(0, 6),
+                            ),
+                          ],
+                        ),
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Account',
+                                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
+                            const SizedBox(height: 12),
+                            ListTile(
+                              leading: const Icon(Icons.lock, color: Color(0xFF728D5A)),
+                              title: const Text('Change Password',
+                                  style: TextStyle(fontWeight: FontWeight.w600)),
+                              onTap: _changePassword,
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              tileColor: Colors.grey.shade50,
+                            ),
+                            const SizedBox(height: 8),
+                            ListTile(
+                              leading: const Icon(Icons.delete_forever, color: Colors.redAccent),
+                              title: const Text('Delete Account',
+                                  style: TextStyle(fontWeight: FontWeight.w600)),
+                              onTap: () => _confirmAction(
+                                'Delete Account',
+                                'This action is permanent and irreversible. Your data will be deleted. Do you really want to proceed?',
+                                _deleteAccount,
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 8),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              tileColor: Colors.grey.shade50,
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      const SizedBox(height: 20),
+
+                      // Vet Status section
+                      Container(
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(16),
+                          border: Border.all(color: Colors.grey.shade200),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.05),
+                              blurRadius: 10,
+                              offset: const Offset(0, 6),
+                            ),
+                          ],
+                        ),
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Vet Status',
+                                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 18)),
+                            const SizedBox(height: 12),
+                            Container(
+                              decoration: BoxDecoration(
+                                color: Colors.grey.shade50,
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: Colors.grey.shade200),
+                              ),
+                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                              child: Row(
+                                children: [
+                                  const Icon(Icons.circle, size: 20, color: Color(0xFF728D5A)),
+                                  const SizedBox(width: 10),
+                                  const Expanded(
+                                    child: Text('Availability',
+                                        style: TextStyle(fontWeight: FontWeight.w600)),
+                                  ),
+                                  DropdownButton<String>(
+                                    value: _statusOptions.contains(_vetStatus) ? _vetStatus : 'Available',
+                                    underline: const SizedBox.shrink(),
+                                    items: _statusOptions
+                                        .map((status) =>
+                                            DropdownMenuItem(value: status, child: Text(status)))
+                                        .toList(),
+                                    onChanged: (value) {
+                                      if (value != null) _updateStatus(value);
+                                    },
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ],

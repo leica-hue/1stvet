@@ -115,6 +115,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
   @override
   Widget build(BuildContext context) {
     const headerColor = Color(0xFFBDD9A4);
+    const primaryGreen = Color(0xFF728D5A);
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA),
@@ -131,12 +132,38 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         children: [
           // Header
           Container(
-            color: headerColor,
             width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 24),
-                  child: const Text(
+            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 22),
+            decoration: BoxDecoration(
+              color: headerColor,
+              borderRadius: const BorderRadius.only(
+                bottomLeft: Radius.circular(16),
+                bottomRight: Radius.circular(16),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.08),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  padding: const EdgeInsets.all(10),
+                  child: const Icon(Icons.analytics_outlined, color: primaryGreen, size: 26),
+                ),
+                const SizedBox(width: 12),
+                const Text(
                   "Vet Analytics Overview",
-                  style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+                  style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: Colors.black),
+                ),
+              ],
             ),
           ),
 
@@ -164,10 +191,19 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                     ],
                   ),
                   const SizedBox(height: 40),
-                  Card(
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(15)),
-                    elevation: 4,
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: Colors.grey.shade200),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.05),
+                          blurRadius: 10,
+                          offset: const Offset(0, 6),
+                        ),
+                      ],
+                    ),
                     child: Padding(
                       padding: const EdgeInsets.all(16),
                       child: Column(
@@ -176,7 +212,7 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
                           const Text(
                             "Activity Overview",
                             style: TextStyle(
-                                fontSize: 20, fontWeight: FontWeight.bold),
+                                fontSize: 20, fontWeight: FontWeight.w800),
                           ),
                           const SizedBox(height: 20),
                           SizedBox(
@@ -211,12 +247,13 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
         padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
           color: Colors.white,
-          borderRadius: BorderRadius.circular(15),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.grey.shade200),
           boxShadow: [
             BoxShadow(
-              color: Colors.grey.shade300,
-              blurRadius: 5,
-              offset: const Offset(0, 3),
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 6),
             ),
           ],
         ),
@@ -228,15 +265,15 @@ class _AnalyticsScreenState extends State<AnalyticsScreen> {
             Text(
               title,
               style: const TextStyle(
-                  fontSize: 16,
+                  fontSize: 14,
                   color: Colors.black54,
-                  fontWeight: FontWeight.w500),
+                  fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 4),
             Text(
               value,
               style:
-                  const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                  const TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
             ),
           ],
         ),

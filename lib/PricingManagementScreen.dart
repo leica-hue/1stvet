@@ -331,13 +331,16 @@ class _PricingManagementScreenState extends State<PricingManagementScreen> {
         : rates.values.fold<double>(0.0, (sum, v) => sum + (v as num).toDouble()) / rates.length;
 
     return Card(
-      elevation: 4,
+      elevation: 0.5,
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(color: Colors.grey.shade200),
+      ),
       child: ExpansionTile(
         tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         leading: Icon(icon, color: const Color(0xFF728D5A), size: 32),
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 17, color: Colors.black87)),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17, color: Colors.black87)),
         subtitle: Text('Average Rate: ₱${average.toStringAsFixed(2)}',
             style: TextStyle(color: Colors.grey[600], fontSize: 13)),
         childrenPadding: const EdgeInsets.only(left: 20, right: 20, top: 8, bottom: 12),
@@ -357,17 +360,18 @@ class _PricingManagementScreenState extends State<PricingManagementScreen> {
 
           return Container(
             margin: const EdgeInsets.only(bottom: 8.0),
-            padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 10.0),
+            padding: const EdgeInsets.symmetric(vertical: 10.0, horizontal: 12.0),
             decoration: BoxDecoration(
               color: Colors.grey[50],
-              borderRadius: BorderRadius.circular(8),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.grey.shade200),
             ),
             child: Row(
               children: [
                 Expanded(
                   child: Text(
                     _formatServiceName(tierKey),
-                    style: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF728D5A), fontSize: 14),
+                    style: const TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF728D5A), fontSize: 14),
                   ),
                 ),
                 SizedBox(
@@ -380,16 +384,29 @@ class _PricingManagementScreenState extends State<PricingManagementScreen> {
                     inputFormatters: [
                       FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')),
                     ],
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       prefixText: '₱ ',
-                      border: InputBorder.none,
-                      contentPadding: EdgeInsets.zero,
+                      filled: true,
+                      fillColor: Colors.white,
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: BorderSide(color: Colors.grey.shade300),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: BorderSide(color: Colors.grey.shade300),
+                      ),
+                      focusedBorder: const OutlineInputBorder(
+                        borderRadius: BorderRadius.all(Radius.circular(10)),
+                        borderSide: BorderSide(color: Color(0xFF728D5A), width: 1.5),
+                      ),
                     ),
                     onChanged: (_) => setState(() {}),
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.delete_outline, color: Colors.red),
+                  icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
                   onPressed: () => _removeService(baseFirestoreField, tierKey),
                 ),
                 SizedBox(
@@ -404,7 +421,7 @@ class _PricingManagementScreenState extends State<PricingManagementScreen> {
                         )
                       : (isModified
                           ? IconButton(
-                              icon: const Icon(Icons.check_circle_outline, color: Color(0xFF6B8E23)),
+                              icon: const Icon(Icons.check_circle_outline, color: Color(0xFF728D5A)),
                               onPressed: () => _updatePrice(fullField, controller.text),
                             )
                           : const SizedBox.shrink()),
@@ -427,187 +444,236 @@ class _PricingManagementScreenState extends State<PricingManagementScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9F5),
-      appBar: AppBar(
-        backgroundColor: const Color(0xFFBDD9A4),
-        title: const Text('Service & Pricing Management 💰',
-            style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black87)),
-        elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.black87),
-      ),
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 900),
-          child: StreamBuilder<DocumentSnapshot>(
-            stream: _getRatesStream(),
-            builder: (context, snapshot) {
-              if (snapshot.connectionState == ConnectionState.waiting) {
-                return const Center(child: CircularProgressIndicator(color: Color(0xFF728D5A)));
-              }
+      // Polished header (consistent with other screens)
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 22),
+            decoration: BoxDecoration(
+              color: const Color(0xFFBDD9A4),
+              borderRadius: const BorderRadius.only(
+                bottomLeft: Radius.circular(16),
+                bottomRight: Radius.circular(16),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.08),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Row(
+              children: [
+                IconButton(
+                  onPressed: () => Navigator.pop(context),
+                  icon: const Icon(Icons.arrow_back, color: Colors.black87),
+                  tooltip: 'Back',
+                ),
+                const SizedBox(width: 4),
+                Container(
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  padding: const EdgeInsets.all(10),
+                  child: const Icon(Icons.currency_exchange, color: Color(0xFF728D5A), size: 26),
+                ),
+                const SizedBox(width: 12),
+                const Text(
+                  'Service & Pricing Management',
+                  style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800, color: Colors.black),
+                ),
+                const Spacer(),
+                ElevatedButton.icon(
+                  onPressed: () => _showAddServiceDialog({}),
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Add Service'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF728D5A),
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 900),
+                child: StreamBuilder<DocumentSnapshot>(
+                  stream: _getRatesStream(),
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator(color: Color(0xFF728D5A)));
+                    }
 
-              if (snapshot.hasError) {
-                return Center(child: Text('❌ Error loading rates: ${snapshot.error}'));
-              }
+                    if (snapshot.hasError) {
+                      return Center(child: Text('❌ Error loading rates: ${snapshot.error}'));
+                    }
 
-              final Map<String, dynamic> snapshotData = _convertToMapStringDynamic(snapshot.data?.data());
-              
-              // Remove fixed fees from data immediately (don't display them)
-              final cleanedData = Map<String, dynamic>.from(snapshotData);
-              cleanedData.remove('consultation_fee_php');
-              cleanedData.remove('urgent_surcharge_php');
-              final ratesData = cleanedData.isNotEmpty ? cleanedData : _defaultRates;
+                    final Map<String, dynamic> snapshotData = _convertToMapStringDynamic(snapshot.data?.data());
+                    
+                    // Remove fixed fees from data immediately (don't display them)
+                    final cleanedData = Map<String, dynamic>.from(snapshotData);
+                    cleanedData.remove('consultation_fee_php');
+                    cleanedData.remove('urgent_surcharge_php');
+                    final ratesData = cleanedData.isNotEmpty ? cleanedData : _defaultRates;
 
-              if (snapshotData.isEmpty && snapshot.data?.exists == false) {
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  _firestore.collection(_collectionName).doc(_ratesDocId).set({
-                    'vetId': _currentVetId,
-                    'dog_vaccination_rates': {},
-                    'cat_vaccination_rates': {},
-                    'deworming_rates': {},
-                    'custom_services': {},
-                    'createdAt': FieldValue.serverTimestamp(),
-                    'updatedAt': FieldValue.serverTimestamp(),
-                  });
-                });
-              }
+                    if (snapshotData.isEmpty && snapshot.data?.exists == false) {
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        _firestore.collection(_collectionName).doc(_ratesDocId).set({
+                          'vetId': _currentVetId,
+                          'dog_vaccination_rates': {},
+                          'cat_vaccination_rates': {},
+                          'deworming_rates': {},
+                          'custom_services': {},
+                          'createdAt': FieldValue.serverTimestamp(),
+                          'updatedAt': FieldValue.serverTimestamp(),
+                        });
+                      });
+                    }
 
-              // Automatically remove old default services and fixed fees on first load (only once)
-              if (!_hasRemovedDefaults) {
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  _removeDefaultServices().then((_) {
-                    _hasRemovedDefaults = true;
-                  });
-                });
-              }
+                    // Automatically remove old default services and fixed fees on first load (only once)
+                    if (!_hasRemovedDefaults) {
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        _removeDefaultServices().then((_) {
+                          _hasRemovedDefaults = true;
+                        });
+                      });
+                    }
 
-              // Handle migration from old 'vaccination_rates' structure if it exists
-              if (ratesData.containsKey('vaccination_rates') && 
-                  !ratesData.containsKey('dog_vaccination_rates') && 
-                  !ratesData.containsKey('cat_vaccination_rates')) {
-                final oldVaccinationRates = _convertToMapStringDynamic(ratesData['vaccination_rates']);
-                final Map<String, dynamic> migrationData = {
-                  'updatedAt': FieldValue.serverTimestamp(),
-                };
-                
-                // Migrate old data to new structure
-                if (oldVaccinationRates.containsKey('dog')) {
-                  migrationData['dog_vaccination_rates'] = {'default': oldVaccinationRates['dog']};
-                  ratesData['dog_vaccination_rates'] = {'default': oldVaccinationRates['dog']};
-                }
-                if (oldVaccinationRates.containsKey('cat')) {
-                  migrationData['cat_vaccination_rates'] = {'default': oldVaccinationRates['cat']};
-                  ratesData['cat_vaccination_rates'] = {'default': oldVaccinationRates['cat']};
-                }
-                
-                // Save migrated data to Firebase
-                if (migrationData.length > 1) {
-                  _firestore.collection(_collectionName).doc(_ratesDocId).set(migrationData, SetOptions(merge: true));
-                }
-              }
+                    // Handle migration from old 'vaccination_rates' structure if it exists
+                    if (ratesData.containsKey('vaccination_rates') && 
+                        !ratesData.containsKey('dog_vaccination_rates') && 
+                        !ratesData.containsKey('cat_vaccination_rates')) {
+                      final oldVaccinationRates = _convertToMapStringDynamic(ratesData['vaccination_rates']);
+                      final Map<String, dynamic> migrationData = {
+                        'updatedAt': FieldValue.serverTimestamp(),
+                      };
+                      
+                      // Migrate old data to new structure
+                      if (oldVaccinationRates.containsKey('dog')) {
+                        migrationData['dog_vaccination_rates'] = {'default': oldVaccinationRates['dog']};
+                        ratesData['dog_vaccination_rates'] = {'default': oldVaccinationRates['dog']};
+                      }
+                      if (oldVaccinationRates.containsKey('cat')) {
+                        migrationData['cat_vaccination_rates'] = {'default': oldVaccinationRates['cat']};
+                        ratesData['cat_vaccination_rates'] = {'default': oldVaccinationRates['cat']};
+                      }
+                      
+                      // Save migrated data to Firebase
+                      if (migrationData.length > 1) {
+                        _firestore.collection(_collectionName).doc(_ratesDocId).set(migrationData, SetOptions(merge: true));
+                      }
+                    }
 
-              final dogVaccinationRates =
-                  _convertToMapStringDynamic(ratesData['dog_vaccination_rates'] ?? _defaultRates['dog_vaccination_rates']);
-              final catVaccinationRates =
-                  _convertToMapStringDynamic(ratesData['cat_vaccination_rates'] ?? _defaultRates['cat_vaccination_rates']);
-              final dewormingRates =
-                  _convertToMapStringDynamic(ratesData['deworming_rates'] ?? _defaultRates['deworming_rates']);
-              final customServices =
-                  _convertToMapStringDynamic(ratesData['custom_services'] ?? _defaultRates['custom_services']);
+                    final dogVaccinationRates =
+                        _convertToMapStringDynamic(ratesData['dog_vaccination_rates'] ?? _defaultRates['dog_vaccination_rates']);
+                    final catVaccinationRates =
+                        _convertToMapStringDynamic(ratesData['cat_vaccination_rates'] ?? _defaultRates['cat_vaccination_rates']);
+                    final dewormingRates =
+                        _convertToMapStringDynamic(ratesData['deworming_rates'] ?? _defaultRates['deworming_rates']);
+                    final customServices =
+                        _convertToMapStringDynamic(ratesData['custom_services'] ?? _defaultRates['custom_services']);
 
-              // Check if vet has added any services yet
-              final hasAnyServices = dogVaccinationRates.isNotEmpty ||
-                  catVaccinationRates.isNotEmpty ||
-                  dewormingRates.isNotEmpty ||
-                  customServices.isNotEmpty;
+                    // Check if vet has added any services yet
+                    final hasAnyServices = dogVaccinationRates.isNotEmpty ||
+                        catVaccinationRates.isNotEmpty ||
+                        dewormingRates.isNotEmpty ||
+                        customServices.isNotEmpty;
 
-              return ListView(
-                padding: const EdgeInsets.only(bottom: 80),
-                children: [
-                  // Helpful banner for new vets
-                  if (!hasAnyServices)
-                    Container(
-                      margin: const EdgeInsets.all(16.0),
-                      padding: const EdgeInsets.all(16.0),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFEAF086),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: const Color(0xFF728D5A), width: 2),
-                      ),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.info_outline, color: Color(0xFF6B8E23), size: 32),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  'Get Started',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 16,
-                                    color: Colors.black87,
-                                  ),
+                    return ListView(
+                      padding: const EdgeInsets.only(bottom: 80),
+                      children: [
+                        // Helpful banner for new vets
+                        if (!hasAnyServices)
+                          Container(
+                            margin: const EdgeInsets.all(16.0),
+                            padding: const EdgeInsets.all(16.0),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFEAF086),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: const Color(0xFF728D5A), width: 1.5),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withOpacity(0.04),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 4),
                                 ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  'Add your services using the "Add Service" button below.',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    color: Colors.grey[800],
+                              ],
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.info_outline, color: Color(0xFF6B8E23), size: 28),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'Get Started',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w800,
+                                          fontSize: 16,
+                                          color: Colors.black87,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        'Add your services using the "Add Service" button below.',
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          color: Colors.grey[800],
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
                               ],
                             ),
                           ),
-                        ],
-                      ),
-                    ),
-                  const Padding(
-                    padding: EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 8.0),
-                    child: Text('Services',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.black87)),
-                  ),
-                  _buildDynamicServiceTile(
-                    title: 'Dog Vaccination 🐕',
-                    baseFirestoreField: 'dog_vaccination_rates',
-                    rates: dogVaccinationRates,
-                    icon: Icons.vaccines_outlined,
-                  ),
-                  _buildDynamicServiceTile(
-                    title: 'Cat Vaccination 🐱',
-                    baseFirestoreField: 'cat_vaccination_rates',
-                    rates: catVaccinationRates,
-                    icon: Icons.vaccines_outlined,
-                  ),
-                  _buildDynamicServiceTile(
-                    title: 'Deworming Service',
-                    baseFirestoreField: 'deworming_rates',
-                    rates: dewormingRates,
-                    icon: Icons.bug_report_outlined,
-                  ),
-                  _buildDynamicServiceTile(
-                    title: 'Custom Services',
-                    baseFirestoreField: 'custom_services',
-                    rates: customServices,
-                    icon: Icons.medical_services_outlined,
-                  ),
-                ],
-              );
-            },
+                        const Padding(
+                          padding: EdgeInsets.fromLTRB(16.0, 16.0, 16.0, 8.0),
+                          child: Text('Services',
+                              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: Colors.black87)),
+                        ),
+                        _buildDynamicServiceTile(
+                          title: 'Dog Vaccination 🐕',
+                          baseFirestoreField: 'dog_vaccination_rates',
+                          rates: dogVaccinationRates,
+                          icon: Icons.vaccines_outlined,
+                        ),
+                        _buildDynamicServiceTile(
+                          title: 'Cat Vaccination 🐱',
+                          baseFirestoreField: 'cat_vaccination_rates',
+                          rates: catVaccinationRates,
+                          icon: Icons.vaccines_outlined,
+                        ),
+                        _buildDynamicServiceTile(
+                          title: 'Deworming Service',
+                          baseFirestoreField: 'deworming_rates',
+                          rates: dewormingRates,
+                          icon: Icons.bug_report_outlined,
+                        ),
+                        _buildDynamicServiceTile(
+                          title: 'Custom Services',
+                          baseFirestoreField: 'custom_services',
+                          rates: customServices,
+                          icon: Icons.medical_services_outlined,
+                        ),
+                      ],
+                    );
+                  },
+                ),
+              ),
+            ),
           ),
-        ),
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          // Get current rates data from the stream builder context
-          // We'll pass empty map as it's not critical for the dialog
-          _showAddServiceDialog({});
-        },
-        icon: const Icon(Icons.add_circle_outline),
-        label: const Text('Add Service'),
-        backgroundColor: const Color(0xFF6B8E23),
-        foregroundColor: const Color.fromARGB(221, 255, 255, 255),
-        tooltip: 'Add a new service to your pricing list',
+        ],
       ),
     );
   }
