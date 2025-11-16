@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 set -e
-#!/usr/bin/env bash
-set -e
 
 # Install Flutter SDK (always fresh clone to avoid cache conflicts)
 echo "Setting up Flutter SDK..."
@@ -20,17 +18,3 @@ echo "Building Flutter web (release)..."
 flutter build web --release
 
 echo "Flutter web build completed."
-
-# Install Flutter SDK
-git clone https://github.com/flutter/flutter.git -b stable --depth 1
-export PATH="$PWD/flutter/bin:$PATH"
-
-# Enable web and check setup
-flutter config --enable-web
-flutter doctor
-
-# Install dependencies
-flutter pub get
-
-# Build web release
-flutter build web --release
