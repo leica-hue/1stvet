@@ -55,7 +55,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   File? _localIdImageFile;             // for mobile preview
   Uint8List? _webIdImageBytes;         // for web preview
   bool _isUploadingId = false;
-  String _verificationStatus = '';     // pending, approved, rejected
+  String _verificationStatus = '';     // pending, verified, rejected
 
   bool _isSaving = false;
   bool _isLoading = true;
@@ -179,7 +179,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ],
             ),
             content: const Text(
-              'Your ID verification is still under review. Please wait for admin approval before applying for premium.',
+              'Your ID verification is still under review. Please wait for admin verification before applying for premium.',
             ),
             actions: [
               TextButton(
@@ -199,7 +199,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       return;
     }
     
-    if (_verificationStatus == 'approved') {
+    if (_verificationStatus == 'verified') {
       // Allow access to premium
       _navigateTo(const PaymentOptionScreen());
     }
@@ -238,7 +238,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const Text(
-                'Your ID verification has been rejected. You cannot apply for premium until your verification is approved.',
+                'Your ID verification has been rejected. You cannot apply for premium until you are verified.',
                 style: TextStyle(fontWeight: FontWeight.w600),
               ),
               if (adminNotes.isNotEmpty) ...[
@@ -535,6 +535,37 @@ class _ProfileScreenState extends State<ProfileScreen> {
       return;
     }
 
+    // Check verification status first
+    await _loadVerificationStatus();
+    
+    // If already verified, show message and return
+    if (_verificationStatus == 'verified') {
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.green),
+                SizedBox(width: 10),
+                Text('Already Verified'),
+              ],
+            ),
+            content: const Text(
+              'Your ID has already been verified by the admin. You do not need to submit it again.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+      }
+      return;
+    }
+
     final picker = ImagePicker();
     final pickedFile = await picker.pickImage(
       source: ImageSource.gallery,
@@ -618,7 +649,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         'vetEmail': vetData['email'] ?? emailController.text,
         'licenseNumber': vetData['license'] ?? licenseController.text,
         'idImageUrl': downloadUrl,
-        'status': 'pending', // pending, approved, rejected
+        'status': 'pending', // pending, verified, rejected
         'submittedAt': FieldValue.serverTimestamp(),
         'reviewedBy': '',
         'reviewedAt': null,
@@ -1073,14 +1104,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
-                      color: _verificationStatus == 'approved'
+                      color: _verificationStatus == 'verified'
                           ? Colors.green
                           : _verificationStatus == 'rejected'
                               ? Colors.red
                               : Colors.orange,
                       width: 2,
                     ),
-                    color: _verificationStatus == 'approved'
+                    color: _verificationStatus == 'verified'
                         ? Colors.green.shade50
                         : _verificationStatus == 'rejected'
                             ? Colors.red.shade50
@@ -1092,12 +1123,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       Row(
                         children: [
                           Icon(
-                            _verificationStatus == 'approved'
+                            _verificationStatus == 'verified'
                                 ? Icons.check_circle
                                 : _verificationStatus == 'rejected'
                                     ? Icons.cancel
                                     : Icons.pending,
-                            color: _verificationStatus == 'approved'
+                            color: _verificationStatus == 'verified'
                                 ? Colors.green
                                 : _verificationStatus == 'rejected'
                                     ? Colors.red
@@ -1111,7 +1142,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               style: TextStyle(
                                 fontWeight: FontWeight.w700,
                                 fontSize: 12,
-                                color: _verificationStatus == 'approved'
+                                color: _verificationStatus == 'verified'
                                     ? Colors.green.shade700
                                     : _verificationStatus == 'rejected'
                                         ? Colors.red.shade700

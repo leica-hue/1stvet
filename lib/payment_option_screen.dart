@@ -87,7 +87,7 @@ class _PaymentProofScreenState extends State<PaymentProofScreen> {
             Navigator.pop(context);
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text('⏳ Your verification is pending. Please wait for admin approval.'),
+                content: Text('⏳ Your verification is pending. Please wait for admin verification.'),
                 backgroundColor: Colors.orange,
                 duration: Duration(seconds: 5),
               ),
@@ -96,8 +96,8 @@ class _PaymentProofScreenState extends State<PaymentProofScreen> {
           return;
         }
 
-        // If approved, allow access
-        if (status != 'approved') {
+        // If verified, allow access
+        if (status != 'verified') {
           if (mounted) {
             Navigator.pop(context);
             ScaffoldMessenger.of(context).showSnackBar(
@@ -685,7 +685,7 @@ class _PaymentOptionScreenState extends State<PaymentOptionScreen> {
             });
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text('⏳ Your verification is pending. Please wait for admin approval.'),
+                content: Text('⏳ Your verification is pending. Please wait for admin verification.'),
                 backgroundColor: Colors.orange,
                 duration: Duration(seconds: 5),
               ),
@@ -694,7 +694,7 @@ class _PaymentOptionScreenState extends State<PaymentOptionScreen> {
           return;
         }
 
-        if (status == 'approved') {
+        if (status == 'verified') {
           if (mounted) {
             setState(() {
               _isCheckingVerification = false;
