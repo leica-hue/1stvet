@@ -375,6 +375,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final today = DateTime.now();
     final todayAppointments = _appointments.where((appt) =>
         appt.status.toLowerCase() != 'completed' &&
+        appt.status.toLowerCase() != 'declined' &&
         appt.appointmentDateTime.year == today.year &&
         appt.appointmentDateTime.month == today.month &&
         appt.appointmentDateTime.day == today.day).toList();

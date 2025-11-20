@@ -2,11 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:flutter_facebook_auth/flutter_facebook_auth.dart'; // Keep for now if the library is still included, but the function is removed.
+// Keep for now if the library is still included, but the function is removed.
 import 'package:google_sign_in/google_sign_in.dart';
 import 'dashboard_screen.dart';
 import 'signup_screen.dart';
-import 'forgot_password_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   final String registeredEmail;

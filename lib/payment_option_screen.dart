@@ -36,6 +36,108 @@ class _PaymentProofScreenState extends State<PaymentProofScreen> {
   
   final double _amountDue = 499.00; // Automatically filled amount
 
+  @override
+  void initState() {
+    super.initState();
+    _checkVerificationStatus();
+  }
+
+  // Check verification status before allowing payment submission
+  Future<void> _checkVerificationStatus() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('❌ Please log in to submit payment.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
+
+    try {
+      final verificationDoc = await FirebaseFirestore.instance
+          .collection('vet_verifications')
+          .doc(user.uid)
+          .get();
+
+      if (verificationDoc.exists) {
+        final data = verificationDoc.data() ?? {};
+        final status = data['status'] ?? '';
+
+        if (status == 'rejected') {
+          if (mounted) {
+            Navigator.pop(context);
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('❌ Your verification was rejected. Please resubmit your ID in Profile.'),
+                backgroundColor: Colors.red,
+                duration: Duration(seconds: 5),
+              ),
+            );
+          }
+          return;
+        }
+
+        if (status == 'pending') {
+          if (mounted) {
+            Navigator.pop(context);
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('⏳ Your verification is pending. Please wait for admin approval.'),
+                backgroundColor: Colors.orange,
+                duration: Duration(seconds: 5),
+              ),
+            );
+          }
+          return;
+        }
+
+        // If approved, allow access
+        if (status != 'approved') {
+          if (mounted) {
+            Navigator.pop(context);
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('⚠️ Please submit your ID for verification first.'),
+                backgroundColor: Colors.orange,
+                duration: Duration(seconds: 5),
+              ),
+            );
+          }
+          return;
+        }
+      } else {
+        // No verification document found
+        if (mounted) {
+          Navigator.pop(context);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('⚠️ Please submit your ID for verification first in Profile.'),
+              backgroundColor: Colors.orange,
+              duration: Duration(seconds: 5),
+            ),
+          );
+        }
+        return;
+      }
+    } catch (e) {
+      print('Error checking verification: $e');
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('⚠️ Error checking verification: $e'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+    }
+  }
+
   // *** NEW: Function to safely get the current Vet ID ***
   String? _getCurrentvetId() {
     // Returns the unique ID of the currently logged-in user (Vet)
@@ -517,13 +619,116 @@ class _PaymentProofScreenState extends State<PaymentProofScreen> {
 // (PaymentOptionScreen remains the same)
 // --- Payment Option Screen (Remains unchanged for context) ---
 
-class PaymentOptionScreen extends StatelessWidget {
+class PaymentOptionScreen extends StatefulWidget {
   const PaymentOptionScreen({super.key});
+
+  @override
+  State<PaymentOptionScreen> createState() => _PaymentOptionScreenState();
+}
+
+class _PaymentOptionScreenState extends State<PaymentOptionScreen> {
+  bool _isCheckingVerification = true;
+  bool _isVerified = false;
 
   static const String adminGCashName = "H. F. P. C.";
   static const String adminGCashNumber = "09995188336";
   static const String amountDue = '₱499.00';
-  static const String qrCodeImage = 'assets/GCash-MyQR-13112025232733.PNG.jpg'; 
+  static const String qrCodeImage = 'assets/GCash-MyQR-13112025232733.PNG.jpg';
+
+  @override
+  void initState() {
+    super.initState();
+    _checkVerificationStatus();
+  }
+
+  Future<void> _checkVerificationStatus() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) {
+      if (mounted) {
+        Navigator.pop(context);
+      }
+      return;
+    }
+
+    try {
+      final verificationDoc = await FirebaseFirestore.instance
+          .collection('vet_verifications')
+          .doc(user.uid)
+          .get();
+
+      if (verificationDoc.exists) {
+        final data = verificationDoc.data() ?? {};
+        final status = data['status'] ?? '';
+
+        if (status == 'rejected') {
+          if (mounted) {
+            setState(() {
+              _isCheckingVerification = false;
+              _isVerified = false;
+            });
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('❌ Your verification was rejected. Please resubmit your ID in Profile.'),
+                backgroundColor: Colors.red,
+                duration: Duration(seconds: 5),
+              ),
+            );
+          }
+          return;
+        }
+
+        if (status == 'pending') {
+          if (mounted) {
+            setState(() {
+              _isCheckingVerification = false;
+              _isVerified = false;
+            });
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('⏳ Your verification is pending. Please wait for admin approval.'),
+                backgroundColor: Colors.orange,
+                duration: Duration(seconds: 5),
+              ),
+            );
+          }
+          return;
+        }
+
+        if (status == 'approved') {
+          if (mounted) {
+            setState(() {
+              _isCheckingVerification = false;
+              _isVerified = true;
+            });
+          }
+          return;
+        }
+      }
+
+      // No verification document found
+      if (mounted) {
+        setState(() {
+          _isCheckingVerification = false;
+          _isVerified = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('⚠️ Please submit your ID for verification first in Profile.'),
+            backgroundColor: Colors.orange,
+            duration: Duration(seconds: 5),
+          ),
+        );
+      }
+    } catch (e) {
+      print('Error checking verification: $e');
+      if (mounted) {
+        setState(() {
+          _isCheckingVerification = false;
+          _isVerified = false;
+        });
+      }
+    }
+  } 
 
   Widget _buildPremiumBanner() { 
     return Container(
@@ -782,6 +987,112 @@ class PaymentOptionScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) { 
+    if (_isCheckingVerification) {
+      return Scaffold(
+        backgroundColor: AppColors.backgroundLight,
+        appBar: AppBar(
+          title: const Text(
+            'Upgrade to Premium',
+            style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black),
+          ),
+          backgroundColor: AppColors.appBarGreen,
+          elevation: 0,
+          iconTheme: const IconThemeData(color: Colors.black),
+        ),
+        body: const Center(
+          child: CircularProgressIndicator(
+            color: AppColors.primaryGreen,
+          ),
+        ),
+      );
+    }
+
+    if (!_isVerified) {
+      return Scaffold(
+        backgroundColor: AppColors.backgroundLight,
+        appBar: AppBar(
+          title: const Text(
+            'Upgrade to Premium',
+            style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black),
+          ),
+          backgroundColor: AppColors.appBarGreen,
+          elevation: 0,
+          iconTheme: const IconThemeData(color: Colors.black),
+        ),
+        body: Center(
+          child: SingleChildScrollView(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 550),
+              child: Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(30),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(18),
+                        border: Border.all(color: Colors.red, width: 2),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.red.withOpacity(0.2),
+                            blurRadius: 20,
+                            offset: const Offset(0, 10),
+                          ),
+                        ],
+                      ),
+                      child: Column(
+                        children: [
+                          const Icon(Icons.cancel, color: Colors.red, size: 60),
+                          const SizedBox(height: 20),
+                          const Text(
+                            'Verification Required',
+                            style: TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.w900,
+                              color: Colors.red,
+                            ),
+                          ),
+                          const SizedBox(height: 15),
+                          const Text(
+                            'You must be verified before applying for premium. Please submit your ID for verification in your Profile.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 16,
+                              color: Colors.black87,
+                            ),
+                          ),
+                          const SizedBox(height: 30),
+                          ElevatedButton.icon(
+                            onPressed: () => Navigator.pop(context),
+                            icon: const Icon(Icons.arrow_back),
+                            label: const Text('Go to Profile'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primaryGreen,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 15,
+                                horizontal: 24,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: AppColors.backgroundLight,
       appBar: AppBar(

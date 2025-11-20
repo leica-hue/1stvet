@@ -51,6 +51,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Uint8List? _webProfileImageBytes;    // for web preview
   String _profileImageUrl = '';        // persisted download URL
 
+  // ID Verification state
+  File? _localIdImageFile;             // for mobile preview
+  Uint8List? _webIdImageBytes;         // for web preview
+  bool _isUploadingId = false;
+  String _verificationStatus = '';     // pending, approved, rejected
+
   bool _isSaving = false;
   bool _isLoading = true;
 
@@ -116,6 +122,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
         await _loadFromSharedPreferences();
         print('PROFILE: no document found for $currentUserId, loaded from SharedPreferences');
       }
+
+      // Load verification status
+      await _loadVerificationStatus();
     } catch (e) {
       print('PROFILE ERROR: $e, falling back to SharedPreferences');
       specialization = _specializationPlaceholder;
@@ -123,6 +132,159 @@ class _ProfileScreenState extends State<ProfileScreen> {
       await _loadFromSharedPreferences();
     } finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  // Load verification status from Firestore
+  Future<void> _loadVerificationStatus() async {
+    if (currentUserId.isEmpty) return;
+
+    try {
+      final verificationDoc = await _firestore
+          .collection('vet_verifications')
+          .doc(currentUserId)
+          .get();
+
+      if (verificationDoc.exists) {
+        final data = verificationDoc.data() ?? {};
+        final status = data['status'] ?? '';
+        if (mounted) {
+          setState(() => _verificationStatus = status);
+        } else {
+          _verificationStatus = status;
+        }
+        print('VERIFICATION STATUS: $status');
+      }
+    } catch (e) {
+      print('VERIFICATION STATUS ERROR: $e');
+    }
+  }
+
+  // Check verification status before allowing premium access
+  Future<void> _checkVerificationBeforePremium() async {
+    // Reload verification status first
+    await _loadVerificationStatus();
+    
+    if (_verificationStatus.isEmpty || _verificationStatus == 'pending') {
+      // Show pending message
+      if (mounted) {
+        showDialog(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Row(
+              children: [
+                Icon(Icons.hourglass_empty, color: Colors.orange),
+                SizedBox(width: 10),
+                Text('Verification Pending'),
+              ],
+            ),
+            content: const Text(
+              'Your ID verification is still under review. Please wait for admin approval before applying for premium.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text('OK'),
+              ),
+            ],
+          ),
+        );
+      }
+      return;
+    }
+    
+    if (_verificationStatus == 'rejected') {
+      // Show rejection message with admin notes
+      await _showRejectionDialog();
+      return;
+    }
+    
+    if (_verificationStatus == 'approved') {
+      // Allow access to premium
+      _navigateTo(const PaymentOptionScreen());
+    }
+  }
+
+  // Show rejection dialog with admin notes
+  Future<void> _showRejectionDialog() async {
+    // Fetch admin notes if available
+    String adminNotes = '';
+    try {
+      final verificationDoc = await _firestore
+          .collection('vet_verifications')
+          .doc(currentUserId)
+          .get();
+      if (verificationDoc.exists) {
+        final data = verificationDoc.data() ?? {};
+        adminNotes = data['adminNotes'] ?? '';
+      }
+    } catch (e) {
+      print('Error loading admin notes: $e');
+    }
+    
+    if (mounted) {
+      showDialog(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Row(
+            children: [
+              Icon(Icons.cancel, color: Colors.red),
+              SizedBox(width: 10),
+              Text('Verification Rejected'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Your ID verification has been rejected. You cannot apply for premium until your verification is approved.',
+                style: TextStyle(fontWeight: FontWeight.w600),
+              ),
+              if (adminNotes.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                const Text(
+                  'Admin Notes:',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(adminNotes),
+                ),
+              ],
+              const SizedBox(height: 16),
+              const Text(
+                'You can resubmit your ID for verification.',
+                style: TextStyle(fontSize: 12, color: Colors.grey),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Close'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _pickIdImage(); // Allow resubmission
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF728D5A),
+              ),
+              child: const Text('Resubmit ID'),
+            ),
+          ],
+        ),
+      );
     }
   }
 
@@ -359,6 +521,151 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  // Pick ID image for verification
+  Future<void> _pickIdImage() async {
+    if (currentUserId.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('⚠️ Please log in to submit ID verification'),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+      return;
+    }
+
+    final picker = ImagePicker();
+    final pickedFile = await picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 85,
+    );
+
+    if (pickedFile == null) return;
+
+    try {
+      Uint8List bytes;
+      File? localFile;
+
+      if (kIsWeb) {
+        bytes = await pickedFile.readAsBytes();
+      } else {
+        localFile = File(pickedFile.path);
+        bytes = await localFile.readAsBytes();
+      }
+
+      if (bytes.isEmpty) return;
+
+      // Show preview
+      if (mounted) {
+        setState(() {
+          if (!kIsWeb) {
+            _localIdImageFile = localFile;
+            _webIdImageBytes = null;
+          } else {
+            _webIdImageBytes = bytes;
+            _localIdImageFile = null;
+          }
+        });
+      }
+
+      // Upload ID image
+      await _uploadIdForVerification(bytes);
+    } catch (e) {
+      print('ID PICK ERROR: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('⚠️ Failed to pick image: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  // Upload ID image to Firebase Storage and create verification request
+  Future<void> _uploadIdForVerification(Uint8List bytes) async {
+    if (currentUserId.isEmpty) return;
+
+    setState(() => _isUploadingId = true);
+
+    try {
+      // Upload to Firebase Storage
+      final storageRef = FirebaseStorage.instance
+          .ref()
+          .child('vet_id_verifications')
+          .child('$currentUserId/id_${DateTime.now().millisecondsSinceEpoch}.jpg');
+
+      print('ID UPLOAD: Starting upload to ${storageRef.fullPath}');
+      final uploadTask = storageRef.putData(
+        bytes,
+        SettableMetadata(contentType: 'image/jpeg'),
+      );
+
+      final snapshot = await uploadTask;
+      final downloadUrl = await snapshot.ref.getDownloadURL();
+      print('ID UPLOAD: Upload complete, url=$downloadUrl');
+
+      // Get vet information
+      final vetDoc = await _firestore.collection('vets').doc(currentUserId).get();
+      final vetData = vetDoc.data() ?? {};
+
+      // Create verification request in Firestore
+      final verificationData = {
+        'vetId': currentUserId,
+        'vetName': vetData['name'] ?? nameController.text,
+        'vetEmail': vetData['email'] ?? emailController.text,
+        'licenseNumber': vetData['license'] ?? licenseController.text,
+        'idImageUrl': downloadUrl,
+        'status': 'pending', // pending, approved, rejected
+        'submittedAt': FieldValue.serverTimestamp(),
+        'reviewedBy': '',
+        'reviewedAt': null,
+        'adminNotes': '',
+      };
+
+      await _firestore
+          .collection('vet_verifications')
+          .doc(currentUserId)
+          .set(verificationData, SetOptions(merge: true));
+
+      print('ID VERIFICATION: Request saved to Firestore');
+
+      // Clear preview and update status
+      if (mounted) {
+        setState(() {
+          _localIdImageFile = null;
+          _webIdImageBytes = null;
+          _isUploadingId = false;
+          _verificationStatus = 'pending';
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('✅ ID submitted successfully! Admin will review it shortly.'),
+            backgroundColor: Color(0xFF6B8E23),
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (e, st) {
+      print('ID UPLOAD ERROR: $e');
+      print('ID UPLOAD STACK: $st');
+
+      if (mounted) {
+        setState(() => _isUploadingId = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('⚠️ Failed to upload ID: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    }
+  }
+
   void _navigateTo(Widget screen) {
     if (screen is SettingsScreen ||
         screen is PricingManagementScreen ||
@@ -481,7 +788,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ],
           ),
           ElevatedButton.icon(
-            onPressed: () => _navigateTo(const PaymentOptionScreen()),
+            onPressed: () => _checkVerificationBeforePremium(),
             icon: const Icon(Icons.star, color: Colors.white, size: 18),
             label: const Text(
               'Get Premium',
@@ -667,6 +974,222 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                 ),
               ),
+              const SizedBox(height: 20),
+              Container(
+                width: 200,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: const Color(0xFF728D5A),
+                    width: 2,
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF728D5A).withOpacity(0.2),
+                      blurRadius: 12,
+                      offset: const Offset(0, 6),
+                      spreadRadius: 1,
+                    ),
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.06),
+                      blurRadius: 8,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: _isUploadingId ? null : _pickIdImage,
+                    borderRadius: BorderRadius.circular(14),
+                    child: Padding(
+                      padding: const EdgeInsets.all(18),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(10),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFEAF086),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: _isUploadingId
+                                    ? const SizedBox(
+                                        width: 20,
+                                        height: 20,
+                                        child: CircularProgressIndicator(
+                                          color: Color(0xFF728D5A),
+                                          strokeWidth: 2.5,
+                                        ),
+                                      )
+                                    : const Icon(
+                                        Icons.verified_user,
+                                        size: 24,
+                                        color: Color(0xFF728D5A),
+                                      ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      _isUploadingId ? 'Uploading...' : 'Submit ID',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 15,
+                                        color: Color(0xFF728D5A),
+                                      ),
+                                    ),
+                                    if (!_isUploadingId)
+                                      const Text(
+                                        'for Verification',
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 11,
+                                          color: Colors.grey,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              // Show verification status if exists
+              if (_verificationStatus.isNotEmpty) ...[
+                const SizedBox(height: 15),
+                Container(
+                  width: 200,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: _verificationStatus == 'approved'
+                          ? Colors.green
+                          : _verificationStatus == 'rejected'
+                              ? Colors.red
+                              : Colors.orange,
+                      width: 2,
+                    ),
+                    color: _verificationStatus == 'approved'
+                        ? Colors.green.shade50
+                        : _verificationStatus == 'rejected'
+                            ? Colors.red.shade50
+                            : Colors.orange.shade50,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Icon(
+                            _verificationStatus == 'approved'
+                                ? Icons.check_circle
+                                : _verificationStatus == 'rejected'
+                                    ? Icons.cancel
+                                    : Icons.pending,
+                            color: _verificationStatus == 'approved'
+                                ? Colors.green
+                                : _verificationStatus == 'rejected'
+                                    ? Colors.red
+                                    : Colors.orange,
+                            size: 20,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Status: ${_verificationStatus.toUpperCase()}',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 12,
+                                color: _verificationStatus == 'approved'
+                                    ? Colors.green.shade700
+                                    : _verificationStatus == 'rejected'
+                                        ? Colors.red.shade700
+                                        : Colors.orange.shade700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (_verificationStatus == 'rejected') ...[
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          width: double.infinity,
+                          child: TextButton(
+                            onPressed: () => _showRejectionDialog(),
+                            style: TextButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 4),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            child: const Text(
+                              'View Details',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+              // Show ID preview if selected
+              if (_localIdImageFile != null || _webIdImageBytes != null) ...[
+                const SizedBox(height: 15),
+                Container(
+                  width: 200,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFF728D5A), width: 2),
+                    color: Colors.grey.shade50,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'ID Preview:',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: kIsWeb && _webIdImageBytes != null
+                            ? Image.memory(
+                                _webIdImageBytes!,
+                                width: double.infinity,
+                                height: 120,
+                                fit: BoxFit.cover,
+                              )
+                            : _localIdImageFile != null
+                                ? Image.file(
+                                    _localIdImageFile!,
+                                    width: double.infinity,
+                                    height: 120,
+                                    fit: BoxFit.cover,
+                                  )
+                                : const SizedBox(),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
             ],
           ),
         ],

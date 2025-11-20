@@ -237,7 +237,7 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                             .toList();
 
                         final filteredAppointments = appointments.where((appt) {
-                            final matchesStatus = (_selectedFilter == "all" && appt.status != "completed")
+                            final matchesStatus = (_selectedFilter == "all" && appt.status != "completed" && appt.status != "declined")
                         || _selectedFilter == appt.status;
                           final matchesDate = _selectedDay == null ||
                               _isSameDate(appt.appointmentDateTime, _selectedDay!);

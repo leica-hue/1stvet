@@ -9,6 +9,7 @@ import 'analytics_screen.dart';
 import 'feedback_screen.dart';
 import 'settings_screen.dart';
 import 'PricingManagementScreen.dart';
+import 'vet_portfolio_screen.dart';
 import 'login_screen.dart';
 import 'user_prefs.dart';
 
@@ -40,6 +41,13 @@ class CommonSidebar extends StatelessWidget {
             label: 'Profile',
             selected: currentScreen == 'Profile',
             onTap: () => _navigateToScreen(context, 'Profile'),
+          ),
+          _buildSidebarItem(
+            context: context,
+            icon: Icons.work_outline,
+            label: 'Portfolio',
+            selected: currentScreen == 'Portfolio',
+            onTap: () => _navigateToScreen(context, 'Portfolio'),
           ),
           _buildSidebarItem(
             context: context,
@@ -151,6 +159,9 @@ class CommonSidebar extends StatelessWidget {
     switch (screenName) {
       case 'Profile':
         screen = const ProfileScreen();
+        break;
+      case 'Portfolio':
+        screen = const VetPortfolioScreen();
         break;
       case 'Dashboard':
         screen = const DashboardScreen();
