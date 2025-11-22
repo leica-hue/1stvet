@@ -45,6 +45,7 @@ class Appointment {
   int cost;
   String appointmentType;
   String userEmail;
+  bool isRescheduled;
 
   Appointment({
     required this.id,
@@ -64,6 +65,7 @@ class Appointment {
     this.cost = 0,
     this.appointmentType = '',
     this.userEmail = '',
+    this.isRescheduled = false,
   });
 
   static Appointment fromDoc(DocumentSnapshot doc) {
@@ -71,6 +73,110 @@ class Appointment {
 
     final Timestamp? apptTs = data['appointmentDateTime'] as Timestamp?;
     final Timestamp? createdAtTs = data['createdAt'] as Timestamp?;
+    final Timestamp? updatedAtTs = data['updatedAt'] as Timestamp?;
+
+    // Check if appointment is rescheduled using multiple indicators
+    bool isRescheduled = false;
+    
+    // Method 1: Check all possible explicit flag field names (case-insensitive check)
+    final flagFields = ['isReschedule', 'rescheduleRequest', 'isRescheduled', 'rescheduled', 
+                        'is_reschedule', 'reschedule_request', 'wasRescheduled'];
+    for (final field in flagFields) {
+      if (data[field] == true) {
+        isRescheduled = true;
+        break;
+      }
+    }
+    
+    // Method 2: Check for rescheduledAt timestamp (any variation)
+    if (!isRescheduled) {
+      final rescheduleTimestampFields = ['rescheduledAt', 'rescheduled_at', 'rescheduleDate', 
+                                          'reschedule_date', 'rescheduledDate'];
+      for (final field in rescheduleTimestampFields) {
+        if (data[field] != null) {
+          isRescheduled = true;
+          break;
+        }
+      }
+    }
+    
+    // Method 3: Check for original/previous appointment date fields
+    if (!isRescheduled) {
+      final originalDateFields = ['originalAppointmentDateTime', 'original_appointment_date_time',
+                                   'previousAppointmentDateTime', 'previous_appointment_date_time',
+                                   'oldAppointmentDateTime', 'old_appointment_date_time',
+                                   'initialAppointmentDateTime', 'initial_appointment_date_time'];
+      for (final field in originalDateFields) {
+        if (data[field] != null) {
+          isRescheduled = true;
+          break;
+        }
+      }
+    }
+    
+    // Method 4: If status is "pending" and there's an updatedAt that's different from createdAt,
+    // it might indicate a reschedule (common pattern: rescheduled appointments go back to pending)
+    if (!isRescheduled && createdAtTs != null && updatedAtTs != null) {
+      final createdAt = createdAtTs.toDate();
+      final updatedAt = updatedAtTs.toDate();
+      final status = (data['status'] ?? '').toString().toLowerCase();
+      
+      // If updated more than 1 minute after creation and status is pending, likely rescheduled
+      // Also check if there are any reschedule-related fields in the data
+      if (updatedAt.difference(createdAt).inMinutes > 1 && status == 'pending') {
+        final hasRescheduleIndicator = data.keys.any((key) => 
+          key.toLowerCase().contains('reschedule') || 
+          key.toLowerCase().contains('original') ||
+          key.toLowerCase().contains('previous'));
+        
+        if (hasRescheduleIndicator) {
+          isRescheduled = true;
+        }
+      }
+    }
+    
+    // Method 5: Last resort - if appointment was updated significantly after creation
+    // and we can't find other indicators, check if it's likely a reschedule
+    // (This is a fallback for cases where reschedule flags aren't set)
+    if (!isRescheduled && createdAtTs != null && updatedAtTs != null && apptTs != null) {
+      final createdAt = createdAtTs.toDate();
+      final updatedAt = updatedAtTs.toDate();
+      final apptDate = apptTs.toDate();
+      
+      // If appointment was updated more than 10 minutes after creation
+      // and the appointment date is in the future, it's likely been rescheduled
+      if (updatedAt.difference(createdAt).inMinutes > 10 && 
+          apptDate.isAfter(DateTime.now())) {
+        // Only mark as rescheduled if status is pending or confirmed (not cancelled/completed)
+        final status = (data['status'] ?? '').toString().toLowerCase();
+        if (status == 'pending' || status == 'confirmed') {
+          isRescheduled = true;
+        }
+      }
+    }
+    
+    // Method 6: Simple heuristic - if appointment was updated after creation 
+    // and status is pending, it's likely been rescheduled
+    // (This is a common pattern: rescheduled appointments often go back to pending)
+    if (!isRescheduled && createdAtTs != null && updatedAtTs != null) {
+      final createdAt = createdAtTs.toDate();
+      final updatedAt = updatedAtTs.toDate();
+      final status = (data['status'] ?? '').toString().toLowerCase();
+      
+      // If updated more than 2 minutes after creation and status is pending, treat as rescheduled
+      // This catches cases where reschedule flags aren't set
+      if (updatedAt.difference(createdAt).inMinutes > 2 && status == 'pending') {
+        isRescheduled = true;
+      }
+    }
+    
+    // Debug: Print to help identify what fields exist (remove in production if needed)
+    debugPrint('APPT ${doc.id} - isRescheduled: $isRescheduled, status: ${data['status']}, '
+        'createdAt: $createdAtTs, updatedAt: $updatedAtTs, '
+        'hasRescheduleFields: ${data.keys.where((k) => 
+          k.toLowerCase().contains('reschedule') || 
+          k.toLowerCase().contains('original') ||
+          k.toLowerCase().contains('previous')).join(", ")}');
 
     return Appointment(
       id: doc.id,
@@ -90,6 +196,7 @@ class Appointment {
       cost: (data['cost'] as num?)?.toInt() ?? 0,
       appointmentType: data['appointmentType'] ?? 'N/A',
       userEmail: data['userEmail'] ?? '',
+      isRescheduled: isRescheduled,
     );
   }
 }
@@ -237,15 +344,23 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                             .toList();
 
                         final filteredAppointments = appointments.where((appt) {
-                            final matchesStatus = (_selectedFilter == "all" && appt.status != "completed" && appt.status != "declined")
-                        || _selectedFilter == appt.status;
+                            // Exclude cancelled appointments from "all" view - they should only show when "cancelled" filter is selected
+                            final apptStatusLower = appt.status.toLowerCase();
+                            final matchesStatus = (_selectedFilter == "all" && 
+                                apptStatusLower != "completed" && 
+                                apptStatusLower != "declined" && 
+                                apptStatusLower != "cancelled")
+                                || _selectedFilter == apptStatusLower;
                           final matchesDate = _selectedDay == null ||
                               _isSameDate(appt.appointmentDateTime, _selectedDay!);
                           return matchesStatus && matchesDate;
                         }).toList();
 
-                        final bookedDates =
-                            appointments.map((e) => e.appointmentDateTime).toList();
+                        // Exclude cancelled appointments from calendar markers
+                        final bookedDates = appointments
+                            .where((appt) => appt.status.toLowerCase() != "cancelled")
+                            .map((e) => e.appointmentDateTime)
+                            .toList();
 
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -303,6 +418,68 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
 
   
 
+  // Helper function to format time slot for display
+  // Handles multiple formats: legacy ("11:00"), old ("11:00 - 12:00 PM"), and new ("11:00 - 12:00 NN")
+  String _formatTimeSlot(String timeSlot) {
+    if (timeSlot.isEmpty) return timeSlot;
+    
+    // Migrate old format to new format for display
+    if (timeSlot == '11:00 - 12:00 PM') {
+      return '11:00 - 12:00 NN';
+    }
+    
+    // Handle legacy format where it's just the start time (e.g., "11:00")
+    // Convert to full range format "11:00 - 12:00 NN"
+    if (timeSlot == '11:00' || timeSlot == '11:00 AM' || timeSlot == '11:00 PM') {
+      return '11:00 - 12:00 NN';
+    }
+    
+    // Map other legacy single time formats to their full ranges
+    final timeSlotMap = {
+      '08:00': '8:00 - 9:00 AM',
+      '8:00': '8:00 - 9:00 AM',
+      '8:00 AM': '8:00 - 9:00 AM',
+      '09:00': '9:00 - 10:00 AM',
+      '9:00': '9:00 - 10:00 AM',
+      '9:00 AM': '9:00 - 10:00 AM',
+      '10:00': '10:00 - 11:00 AM',
+      '10:00 AM': '10:00 - 11:00 AM',
+      '12:00': '11:00 - 12:00 NN',
+      '12:00 PM': '11:00 - 12:00 NN',
+      '13:00': '1:00 - 2:00 PM',
+      '1:00': '1:00 - 2:00 PM',
+      '1:00 PM': '1:00 - 2:00 PM',
+      '14:00': '2:00 - 3:00 PM',
+      '2:00': '2:00 - 3:00 PM',
+      '2:00 PM': '2:00 - 3:00 PM',
+      '15:00': '3:00 - 4:00 PM',
+      '3:00': '3:00 - 4:00 PM',
+      '3:00 PM': '3:00 - 4:00 PM',
+      '16:00': '4:00 - 5:00 PM',
+      '4:00': '4:00 - 5:00 PM',
+      '4:00 PM': '4:00 - 5:00 PM',
+    };
+    
+    // Check if it's a legacy single time format
+    if (timeSlotMap.containsKey(timeSlot)) {
+      return timeSlotMap[timeSlot]!;
+    }
+    
+    // If it already contains the full range with NN, return as-is
+    if (timeSlot.contains(' - ') && timeSlot.contains('NN')) {
+      return timeSlot;
+    }
+    
+    // If it contains the full range with PM/AM, return as-is
+    // (other time slots like "1:00 - 2:00 PM" should display normally)
+    if (timeSlot.contains(' - ') && (timeSlot.contains('PM') || timeSlot.contains('AM'))) {
+      return timeSlot;
+    }
+    
+    // For any other format, return as-is
+    return timeSlot;
+  }
+
   Widget _appointmentCard(Appointment appt) {
     Color statusColor;
     switch (appt.status) {
@@ -346,10 +523,44 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
           Row(
             children: [
               Expanded(
-                child: Text(
-                  appt.petName,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.bold, fontSize: 16),
+                child: Row(
+                  children: [
+                    Text(
+                      appt.petName,
+                      style: const TextStyle(
+                          fontWeight: FontWeight.bold, fontSize: 16),
+                    ),
+                    if (appt.isRescheduled) ...[
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.orange.shade100,
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: Colors.orange.shade300, width: 1),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.schedule,
+                              size: 14,
+                              color: Colors.orange.shade700,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Rescheduled',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.orange.shade700,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
               Text(
@@ -398,7 +609,7 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
             children: [
               const Icon(Icons.access_time, size: 18),
               const SizedBox(width: 6),
-              Text(appt.timeSlot),
+              Text(_formatTimeSlot(appt.timeSlot)),
               const SizedBox(width: 20),
               const Icon(Icons.person, size: 18),
               const SizedBox(width: 6),

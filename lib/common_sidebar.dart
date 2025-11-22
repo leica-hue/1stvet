@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:provider/provider.dart';
 // Screens referenced by the sidebar
 import 'dashboard_screen.dart';
 import 'appointments_screen.dart';
@@ -12,6 +13,7 @@ import 'PricingManagementScreen.dart';
 import 'vet_portfolio_screen.dart';
 import 'login_screen.dart';
 import 'user_prefs.dart';
+import 'notification_service.dart';
 
 /// Common sidebar widget used across all screens
 /// Provides consistent navigation and styling
@@ -91,9 +93,9 @@ class CommonSidebar extends StatelessWidget {
           _buildSidebarItem(
             context: context,
             icon: Icons.price_change_outlined,
-            label: 'Pricing',
-            selected: currentScreen == 'Pricing',
-            onTap: () => _navigateToScreen(context, 'Pricing', replace: false),
+            label: 'Services',
+            selected: currentScreen == 'Services',
+            onTap: () => _navigateToScreen(context, 'Services', replace: false),
           ),
           _buildSidebarItem(
             context: context,
@@ -181,7 +183,7 @@ class CommonSidebar extends StatelessWidget {
       case 'Settings':
         screen = const SettingsScreen();
         break;
-      case 'Pricing':
+      case 'Services':
         screen = const PricingManagementScreen();
         break;
     }
@@ -202,6 +204,10 @@ class CommonSidebar extends StatelessWidget {
   }
 
   Future<void> _handleLogout(BuildContext context) async {
+    // Reset notification service on logout
+    final notificationService = Provider.of<NotificationService>(context, listen: false);
+    await notificationService.resetOnLogout();
+    
     await FirebaseAuth.instance.signOut();
     await UserPrefs.clearLoggedIn();
     if (!context.mounted) return;

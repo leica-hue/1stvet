@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_facebook_auth/flutter_facebook_auth.dart';
+import 'package:provider/provider.dart';
 import 'firebase_options.dart';
 import 'login_screen.dart';
+import 'notification_service.dart';
 
 
 void main() async {
@@ -25,16 +27,19 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'Furever Healthy',
-      theme: ThemeData(
-        fontFamily: 'Inter',
-        primarySwatch: Colors.green,
-      ),
-      home: const LoginScreen(
-        registeredEmail: '',
-        registeredPassword: '',
+    return ChangeNotifierProvider(
+      create: (_) => NotificationService(),
+      child: MaterialApp(
+        debugShowCheckedModeBanner: false,
+        title: 'Furever Healthy',
+        theme: ThemeData(
+          fontFamily: 'Inter',
+          primarySwatch: Colors.green,
+        ),
+        home: const LoginScreen(
+          registeredEmail: '',
+          registeredPassword: '',
+        ),
       ),
     );
   }

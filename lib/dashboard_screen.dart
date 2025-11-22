@@ -9,6 +9,7 @@ import 'appointments_screen.dart';
 import 'profile_screen.dart';
 import 'user_prefs.dart'; // Assuming this file contains the UserPrefs.loadProfile logic
 import 'common_sidebar.dart';
+import 'notification_icon.dart';
 
 // --- Appointment Class (No Changes Needed) ---
 class Appointment {
@@ -376,6 +377,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final todayAppointments = _appointments.where((appt) =>
         appt.status.toLowerCase() != 'completed' &&
         appt.status.toLowerCase() != 'declined' &&
+        appt.status.toLowerCase() != 'cancelled' &&
         appt.appointmentDateTime.year == today.year &&
         appt.appointmentDateTime.month == today.month &&
         appt.appointmentDateTime.day == today.day).toList();
@@ -423,10 +425,13 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 child: Icon(Icons.dashboard_rounded, color: _primaryGreen, size: 26),
                               ),
                               const SizedBox(width: 12),
-                              const Text(
-                                'Dashboard',
-                                style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800),
+                              const Expanded(
+                                child: Text(
+                                  'Dashboard',
+                                  style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800),
+                                ),
                               ),
+                              const NotificationIcon(),
                             ],
                           ),
                         ),
@@ -665,6 +670,68 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
 
+  // Helper function to format time slot for display
+  // Handles multiple formats: legacy ("11:00"), old ("11:00 - 12:00 PM"), and new ("11:00 - 12:00 NN")
+  String _formatTimeSlot(String timeSlot) {
+    if (timeSlot.isEmpty) return timeSlot;
+    
+    // Migrate old format to new format for display
+    if (timeSlot == '11:00 - 12:00 PM') {
+      return '11:00 - 12:00 NN';
+    }
+    
+    // Handle legacy format where it's just the start time (e.g., "11:00")
+    // Convert to full range format "11:00 - 12:00 NN"
+    if (timeSlot == '11:00' || timeSlot == '11:00 AM' || timeSlot == '11:00 PM') {
+      return '11:00 - 12:00 NN';
+    }
+    
+    // Map other legacy single time formats to their full ranges
+    final timeSlotMap = {
+      '08:00': '8:00 - 9:00 AM',
+      '8:00': '8:00 - 9:00 AM',
+      '8:00 AM': '8:00 - 9:00 AM',
+      '09:00': '9:00 - 10:00 AM',
+      '9:00': '9:00 - 10:00 AM',
+      '9:00 AM': '9:00 - 10:00 AM',
+      '10:00': '10:00 - 11:00 AM',
+      '10:00 AM': '10:00 - 11:00 AM',
+      '12:00': '11:00 - 12:00 NN',
+      '12:00 PM': '11:00 - 12:00 NN',
+      '13:00': '1:00 - 2:00 PM',
+      '1:00': '1:00 - 2:00 PM',
+      '1:00 PM': '1:00 - 2:00 PM',
+      '14:00': '2:00 - 3:00 PM',
+      '2:00': '2:00 - 3:00 PM',
+      '2:00 PM': '2:00 - 3:00 PM',
+      '15:00': '3:00 - 4:00 PM',
+      '3:00': '3:00 - 4:00 PM',
+      '3:00 PM': '3:00 - 4:00 PM',
+      '16:00': '4:00 - 5:00 PM',
+      '4:00': '4:00 - 5:00 PM',
+      '4:00 PM': '4:00 - 5:00 PM',
+    };
+    
+    // Check if it's a legacy single time format
+    if (timeSlotMap.containsKey(timeSlot)) {
+      return timeSlotMap[timeSlot]!;
+    }
+    
+    // If it already contains the full range with NN, return as-is
+    if (timeSlot.contains(' - ') && timeSlot.contains('NN')) {
+      return timeSlot;
+    }
+    
+    // If it contains the full range with PM/AM, return as-is
+    // (other time slots like "1:00 - 2:00 PM" should display normally)
+    if (timeSlot.contains(' - ') && (timeSlot.contains('PM') || timeSlot.contains('AM'))) {
+      return timeSlot;
+    }
+    
+    // For any other format, return as-is
+    return timeSlot;
+  }
+
   Widget _appointmentCard(Appointment appt) {
     Color statusColor;
     switch (appt.status.toLowerCase()) {
@@ -701,7 +768,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             Row(children: [
               Icon(Icons.access_time, color: Colors.grey.shade700, size: 18),
               const SizedBox(width: 6),
-              Text(appt.timeSlot)
+              Text(_formatTimeSlot(appt.timeSlot))
             ]),
             const SizedBox(height: 6),
             Row(children: [

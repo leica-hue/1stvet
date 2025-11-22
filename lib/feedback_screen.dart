@@ -127,13 +127,14 @@ class _VetFeedbackScreenState extends State<VetFeedbackScreen> {
   final CollectionReference appointmentsCollection =
       FirebaseFirestore.instance.collection('user_appointments');
 
-// Placeholder for the fix, requires a separate Future/Stream for vet profile
+// Store both vetId and vetName for querying
+String? _loggedInVetId;
 String? _loggedInVetName; // Will be null while loading
 
 @override
 void initState() {
   super.initState();
-  _fetchVetName();
+  _fetchVetInfo();
 }
 
 @override
@@ -144,12 +145,15 @@ void dispose() {
   super.dispose();
 }
 
-void _fetchVetName() async {
+void _fetchVetInfo() async {
   final user = FirebaseAuth.instance.currentUser;
   // If user is null, we can't proceed, but we'll default to null/loading state
   if (user != null) {
+    setState(() {
+      _loggedInVetId = user.uid; // Set vetId immediately from auth
+    });
     try {
-      // Assuming you have a 'vets' collection
+      // Fetch vet name from 'vets' collection
       final vetDoc = await FirebaseFirestore.instance.collection('vets').doc(user.uid).get();
       if (vetDoc.exists) {
         setState(() {
@@ -169,6 +173,7 @@ void _fetchVetName() async {
     }
   } else {
     setState(() {
+      _loggedInVetId = null;
       _loggedInVetName = 'Not Logged In';
     });
   }
@@ -192,13 +197,14 @@ void _onSearchChanged(String query) {
 
   // FUNCTION 1: Fetch all relevant appointments once (Future)
   Future<QuerySnapshot> _fetchVetAppointments() async {
-    // Return empty result immediately if the vet name hasn't loaded yet
-    if (_loggedInVetName == null) {
-      return Future.error("Vet Name is Loading");
+    // Return empty result immediately if the vet ID hasn't loaded yet
+    if (_loggedInVetId == null) {
+      return Future.error("Vet ID is Loading");
     }
 
+    // Use vetId for more reliable matching (consistent with other screens)
     return appointmentsCollection
-        .where('vetName', isEqualTo: _loggedInVetName)
+        .where('vetId', isEqualTo: _loggedInVetId)
         .get();
   }
 
@@ -253,8 +259,8 @@ void _onSearchChanged(String query) {
 
   @override
   Widget build(BuildContext context) {
-    // Handle initial loading state for the vet's name
-    if (_loggedInVetName == null) {
+    // Handle initial loading state for the vet's info
+    if (_loggedInVetId == null || _loggedInVetName == null) {
       return const Scaffold(
         body: Center(child: CircularProgressIndicator(value: null, semanticsLabel: 'Loading Vet Profile')),
       );
@@ -286,6 +292,9 @@ void _onSearchChanged(String query) {
             appointmentLookupMap[doc.id] = doc.data() as Map<String, dynamic>;
           }
         }
+        
+        // Store appointmentLookupMap in a way accessible to _buildFeedbackList
+        // We'll pass it as a parameter
 
         // Now build the main UI with the Scaffold
         return Scaffold(
@@ -418,40 +427,87 @@ void _onSearchChanged(String query) {
               // ---
 
               // 🟢 FEEDBACK LIST (StreamBuilder)
+              // Use StreamBuilder with a combined approach: query by vetId, then filter by vetName if needed
               Expanded(
                 child: StreamBuilder<QuerySnapshot>(
+                  // First try vetId (more reliable and consistent)
                   stream: feedbackCollection
-                          // The vet name is guaranteed to be non-null here due to the check above
-                      .where('vetName', isEqualTo: _loggedInVetName!)
+                      .where('vetId', isEqualTo: _loggedInVetId!)
                       .snapshots(),
                   builder: (context, feedbackSnapshot) {
-                    if (feedbackSnapshot.hasError) {
-                      return Center(
-                        child: Text(
-                          'Error loading feedback: ${feedbackSnapshot.error}',
-                          style: const TextStyle(color: Colors.redAccent),
-                        ),
+                    // If no results with vetId, try vetName as fallback
+                    if (feedbackSnapshot.hasData && 
+                        feedbackSnapshot.data!.docs.isEmpty && 
+                        _loggedInVetName != null) {
+                      return StreamBuilder<QuerySnapshot>(
+                        stream: feedbackCollection
+                            .where('vetName', isEqualTo: _loggedInVetName!)
+                            .snapshots(),
+                        builder: (context, fallbackSnapshot) {
+                          return _buildFeedbackList(fallbackSnapshot, appointmentLookupMap);
+                        },
                       );
                     }
-                    if (feedbackSnapshot.connectionState == ConnectionState.waiting) {
-                      return const Center(child: CircularProgressIndicator());
-                    }
+                    
+                    return _buildFeedbackList(feedbackSnapshot, appointmentLookupMap);
+                  },
+                ),
+              ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          )
+        ;
+      },
+    );
+  }
 
-                    if (!feedbackSnapshot.hasData || feedbackSnapshot.data!.docs.isEmpty) {
-                      return Center(
-                        child: Text(
-                          "No client feedback found for $_loggedInVetName.",
-                          style: const TextStyle(
-                            fontSize: 16,
-                            color: Colors.grey,
-                            fontStyle: FontStyle.italic,
-                          ),
-                        ),
-                      );
-                    }
+  Widget _buildFeedbackList(AsyncSnapshot<QuerySnapshot> feedbackSnapshot, Map<String, Map<String, dynamic>> appointmentLookupMap) {
+    if (feedbackSnapshot.hasError) {
+      return Center(
+        child: Text(
+          'Error loading feedback: ${feedbackSnapshot.error}',
+          style: const TextStyle(color: Colors.redAccent),
+        ),
+      );
+    }
+    if (feedbackSnapshot.connectionState == ConnectionState.waiting) {
+      return const Center(child: CircularProgressIndicator());
+    }
 
-                    // DATA JOIN: Combine feedback data with appointment data
-                    List<Map<String, dynamic>> feedbackList = feedbackSnapshot.data!.docs.map((doc) {
+    if (!feedbackSnapshot.hasData || feedbackSnapshot.data!.docs.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.feedback_outlined, size: 64, color: Colors.grey.shade400),
+            const SizedBox(height: 16),
+            Text(
+              "No client feedback found.",
+              style: TextStyle(
+                fontSize: 16,
+                color: Colors.grey.shade600,
+                fontStyle: FontStyle.italic,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              "Feedback will appear here once clients submit reviews.",
+              style: TextStyle(
+                fontSize: 14,
+                color: Colors.grey.shade500,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
+      );
+    }
+
+    // DATA JOIN: Combine feedback data with appointment data
+    List<Map<String, dynamic>> feedbackList = feedbackSnapshot.data!.docs.map((doc) {
                       try {
                         final raw = doc.data();
                         if (raw == null) return <String, dynamic>{};
@@ -641,18 +697,6 @@ void _onSearchChanged(String query) {
                         }
                       },
                     );
-                  },
-                ),
-              ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          )
-        ;
-      },
-    );
   }
 }
 

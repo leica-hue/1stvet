@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:async';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -36,14 +37,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String get currentUserId => _auth.currentUser?.uid ?? '';
 
   static const String _specializationPlaceholder = 'Select Specialization';
+  static const String _addCustomOption = 'Add Custom Specialization...';
   String specialization = _specializationPlaceholder;
 
-  final List<String> specializations = [
+  List<String> specializations = [
     _specializationPlaceholder,
     'Pathology',
     'Behaviour',
     'Dermatology',
     'General',
+    _addCustomOption,
   ];
 
   // Image state
@@ -56,9 +59,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
   Uint8List? _webIdImageBytes;         // for web preview
   bool _isUploadingId = false;
   String _verificationStatus = '';     // pending, verified, rejected
+  String _submittedIdImageUrl = '';     // URL of submitted ID image from Firebase
+  bool _showSubmittedIdPreview = false; // Show submitted ID preview when button is clicked
 
   bool _isSaving = false;
   bool _isLoading = true;
+  Timer? _licenseSaveTimer;
 
   @override
   void initState() {
@@ -68,6 +74,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   @override
   void dispose() {
+    _licenseSaveTimer?.cancel();
     nameController.dispose();
     licenseController.dispose();
     emailController.dispose();
@@ -97,10 +104,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
         clinicController.text = data['clinic'] ?? '';
 
         final loadedSpec = data['specialization'];
-        specialization =
-            (loadedSpec != null && specializations.contains(loadedSpec))
-                ? loadedSpec
-                : _specializationPlaceholder;
+        if (loadedSpec != null && loadedSpec.isNotEmpty) {
+          // If it's a custom specialization not in the list, add it
+          if (!specializations.contains(loadedSpec) && loadedSpec != _specializationPlaceholder) {
+            // Insert before "Add Custom..." option
+            final addCustomIndex = specializations.indexOf(_addCustomOption);
+            if (addCustomIndex != -1) {
+              specializations.insert(addCustomIndex, loadedSpec);
+            } else {
+              specializations.add(loadedSpec);
+            }
+          }
+          specialization = loadedSpec;
+        } else {
+          specialization = _specializationPlaceholder;
+        }
 
         final loadedImageUrl = data['profileImageUrl'] ?? '';
 
@@ -148,12 +166,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (verificationDoc.exists) {
         final data = verificationDoc.data() ?? {};
         final status = data['status'] ?? '';
+        final idImageUrl = data['idImageUrl'] ?? '';
         if (mounted) {
-          setState(() => _verificationStatus = status);
+          setState(() {
+            _verificationStatus = status;
+            _submittedIdImageUrl = idImageUrl;
+          });
         } else {
           _verificationStatus = status;
+          _submittedIdImageUrl = idImageUrl;
         }
-        print('VERIFICATION STATUS: $status');
+        print('VERIFICATION STATUS: $status, ID URL: $idImageUrl');
       }
     } catch (e) {
       print('VERIFICATION STATUS ERROR: $e');
@@ -323,12 +346,36 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  // Save license number to Firebase automatically when typing
+  Future<void> _saveLicenseToFirebase() async {
+    if (currentUserId.isEmpty) return;
+
+    // Cancel previous timer if exists
+    _licenseSaveTimer?.cancel();
+
+    // Set a new timer to save after user stops typing (1 second delay)
+    _licenseSaveTimer = Timer(const Duration(seconds: 1), () async {
+      try {
+        await _firestore.collection('vets').doc(currentUserId).set(
+          {
+            'license': licenseController.text,
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
+        print('LICENSE: Auto-saved to Firebase: ${licenseController.text}');
+      } catch (e) {
+        print('LICENSE SAVE ERROR: $e');
+      }
+    });
+  }
+
   // Save vet profile to Firestore
   Future<void> _saveProfile() async {
     if (currentUserId.isEmpty) return;
     if (_isSaving) return;
 
-    if (specialization == _specializationPlaceholder) {
+    if (specialization == _specializationPlaceholder || specialization == _addCustomOption) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -521,6 +568,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  // View submitted ID
+  Future<void> _viewSubmittedId() async {
+    if (currentUserId.isEmpty) return;
+    
+    await _loadVerificationStatus();
+    
+    if (_submittedIdImageUrl.isNotEmpty) {
+      if (mounted) {
+        setState(() {
+          _showSubmittedIdPreview = !_showSubmittedIdPreview;
+        });
+      }
+    }
+  }
+
   // Pick ID image for verification
   Future<void> _pickIdImage() async {
     if (currentUserId.isEmpty) {
@@ -663,13 +725,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
       print('ID VERIFICATION: Request saved to Firestore');
 
-      // Clear preview and update status
+      // Clear local preview but keep URL, update status
       if (mounted) {
         setState(() {
           _localIdImageFile = null;
           _webIdImageBytes = null;
           _isUploadingId = false;
           _verificationStatus = 'pending';
+          _submittedIdImageUrl = downloadUrl; // Store the submitted ID URL
         });
 
         ScaffoldMessenger.of(context).showSnackBar(
@@ -710,14 +773,111 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  // Show dialog to add custom specialization
+  Future<void> _showAddCustomSpecializationDialog() async {
+    final TextEditingController customSpecController = TextEditingController();
+    
+    if (!mounted) return;
+    
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.add_circle_outline, color: Color(0xFF728D5A)),
+            SizedBox(width: 10),
+            Text('Add Custom Specialization'),
+          ],
+        ),
+        content: TextField(
+          controller: customSpecController,
+          autofocus: true,
+          decoration: InputDecoration(
+            labelText: 'Specialization Name',
+            hintText: 'e.g., Cardiology, Surgery, etc.',
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: Color(0xFF728D5A), width: 2),
+            ),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          ),
+          textCapitalization: TextCapitalization.words,
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              final customSpec = customSpecController.text.trim();
+              if (customSpec.isNotEmpty) {
+                Navigator.pop(context, customSpec);
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF728D5A),
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Add'),
+          ),
+        ],
+      ),
+    );
+
+    if (result != null && result.isNotEmpty) {
+      // Check if specialization already exists
+      if (specializations.contains(result)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('⚠️ "$result" already exists in the list.'),
+              backgroundColor: Colors.orange,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+        // Set it as selected anyway
+        setState(() => specialization = result);
+      } else {
+        // Add the custom specialization to the list (before "Add Custom..." option)
+        final addCustomIndex = specializations.indexOf(_addCustomOption);
+        if (addCustomIndex != -1) {
+          specializations.insert(addCustomIndex, result);
+        } else {
+          specializations.add(result);
+        }
+        // Set it as selected
+        setState(() => specialization = result);
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('✅ "$result" added successfully!'),
+              backgroundColor: const Color(0xFF6B8E23),
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    }
+    
+    customSpecController.dispose();
+  }
+
   Widget _editableField(
     String label,
     TextEditingController controller, {
     bool readOnly = false,
+    void Function(String)? onChanged,
   }) {
     return TextField(
       controller: controller,
       readOnly: readOnly,
+      onChanged: onChanged,
       decoration: InputDecoration(
         labelText: label,
         labelStyle: const TextStyle(fontWeight: FontWeight.w600),
@@ -884,17 +1044,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
               children: [
                 _editableField('Full Name', nameController),
                 const SizedBox(height: 20),
-                _editableField('License Number', licenseController),
+                _editableField('License Number', licenseController, onChanged: (_) => _saveLicenseToFirebase()),
                 const SizedBox(height: 20),
-                _editableField(
-                  'Email (Read-Only)',
-                  emailController,
-                  readOnly: true,
-                ),
+                _editableField('Email', emailController),
+                const SizedBox(height: 20),
+                _editableField('Clinic Name', clinicController),
                 const SizedBox(height: 20),
                 _editableField('Location', locationController),
-                const SizedBox(height: 20),
-                _editableField('Clinic Name (optional)', clinicController),
                 const SizedBox(height: 30),
                 Center(
                   child: ElevatedButton.icon(
@@ -971,7 +1127,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           .toList(),
                       onChanged: (value) {
                         if (value != null) {
-                          setState(() => specialization = value);
+                          if (value == _addCustomOption) {
+                            _showAddCustomSpecializationDialog();
+                          } else {
+                            setState(() => specialization = value);
+                          }
                         }
                       },
                     ),
@@ -986,7 +1146,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       _navigateTo(const PricingManagementScreen()),
                   icon: const Icon(Icons.currency_exchange, size: 20),
                   label: const Text(
-                    'Manage Rates',
+                    'Services',
                     style: TextStyle(
                       fontWeight: FontWeight.w700,
                       fontSize: 14,
@@ -1010,89 +1170,221 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 width: 200,
                 decoration: BoxDecoration(
                   color: Colors.white,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: const Color(0xFF728D5A),
-                    width: 2,
-                  ),
+                  borderRadius: BorderRadius.circular(16),
                   boxShadow: [
                     BoxShadow(
-                      color: const Color(0xFF728D5A).withOpacity(0.2),
-                      blurRadius: 12,
-                      offset: const Offset(0, 6),
-                      spreadRadius: 1,
-                    ),
-                    BoxShadow(
-                      color: Colors.black.withOpacity(0.06),
-                      blurRadius: 8,
+                      color: Colors.black.withOpacity(0.08),
+                      blurRadius: 10,
                       offset: const Offset(0, 4),
                     ),
                   ],
                 ),
-                child: Material(
-                  color: Colors.transparent,
-                  child: InkWell(
-                    onTap: _isUploadingId ? null : _pickIdImage,
-                    borderRadius: BorderRadius.circular(14),
-                    child: Padding(
-                      padding: const EdgeInsets.all(18),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.all(10),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFEAF086),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: _isUploadingId
-                                    ? const SizedBox(
-                                        width: 20,
-                                        height: 20,
-                                        child: CircularProgressIndicator(
-                                          color: Color(0xFF728D5A),
-                                          strokeWidth: 2.5,
-                                        ),
-                                      )
-                                    : const Icon(
-                                        Icons.verified_user,
-                                        size: 24,
-                                        color: Color(0xFF728D5A),
-                                      ),
+                child: Column(
+                  children: [
+                    // ID Preview Section
+                    if (_localIdImageFile != null || _webIdImageBytes != null || (_showSubmittedIdPreview && _submittedIdImageUrl.isNotEmpty)) ...[
+                      Container(
+                        width: double.infinity,
+                        height: 140,
+                        decoration: BoxDecoration(
+                          borderRadius: const BorderRadius.only(
+                            topLeft: Radius.circular(16),
+                            topRight: Radius.circular(16),
+                          ),
+                          color: Colors.grey.shade100,
+                        ),
+                        child: ClipRRect(
+                          borderRadius: const BorderRadius.only(
+                            topLeft: Radius.circular(16),
+                            topRight: Radius.circular(16),
+                          ),
+                          child: kIsWeb && _webIdImageBytes != null
+                              ? Image.memory(
+                                  _webIdImageBytes!,
+                                  width: double.infinity,
+                                  height: 140,
+                                  fit: BoxFit.cover,
+                                )
+                              : _localIdImageFile != null
+                                  ? Image.file(
+                                      _localIdImageFile!,
+                                      width: double.infinity,
+                                      height: 140,
+                                      fit: BoxFit.cover,
+                                    )
+                                  : _submittedIdImageUrl.isNotEmpty
+                                      ? Image.network(
+                                          _submittedIdImageUrl,
+                                          width: double.infinity,
+                                          height: 140,
+                                          fit: BoxFit.cover,
+                                          loadingBuilder: (context, child, loadingProgress) {
+                                            if (loadingProgress == null) return child;
+                                            return Container(
+                                              width: double.infinity,
+                                              height: 140,
+                                              color: Colors.grey[200],
+                                              child: Center(
+                                                child: CircularProgressIndicator(
+                                                  value: loadingProgress.expectedTotalBytes != null
+                                                      ? loadingProgress.cumulativeBytesLoaded /
+                                                          loadingProgress.expectedTotalBytes!
+                                                      : null,
+                                                  color: const Color(0xFF728D5A),
+                                                  strokeWidth: 2.0,
+                                                ),
+                                              ),
+                                            );
+                                          },
+                                          errorBuilder: (context, error, stackTrace) {
+                                            return Container(
+                                              width: double.infinity,
+                                              height: 140,
+                                              color: Colors.grey[300],
+                                              child: const Icon(
+                                                Icons.broken_image,
+                                                size: 40,
+                                                color: Colors.grey,
+                                              ),
+                                            );
+                                          },
+                                        )
+                                      : const SizedBox(),
+                        ),
+                      ),
+                      Divider(height: 1, thickness: 1, color: Colors.grey.shade200),
+                    ],
+                    // Buttons Section
+                    Column(
+                      children: [
+                        // View Submitted ID Button (only show if status is pending and ID exists)
+                        if (_verificationStatus == 'pending' && _submittedIdImageUrl.isNotEmpty) ...[
+                          Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              onTap: _viewSubmittedId,
+                              borderRadius: BorderRadius.only(
+                                topLeft: (_localIdImageFile != null || _webIdImageBytes != null || (_showSubmittedIdPreview && _submittedIdImageUrl.isNotEmpty))
+                                    ? Radius.zero
+                                    : const Radius.circular(16),
+                                topRight: (_localIdImageFile != null || _webIdImageBytes != null || (_showSubmittedIdPreview && _submittedIdImageUrl.isNotEmpty))
+                                    ? Radius.zero
+                                    : const Radius.circular(16),
                               ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
+                              child: Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 12),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
-                                    Text(
-                                      _isUploadingId ? 'Uploading...' : 'Submit ID',
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w800,
-                                        fontSize: 15,
-                                        color: Color(0xFF728D5A),
+                                    Icon(
+                                      _showSubmittedIdPreview ? Icons.visibility_off : Icons.visibility,
+                                      size: 18,
+                                      color: const Color(0xFF728D5A),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Flexible(
+                                      child: Text(
+                                        _showSubmittedIdPreview ? 'Hide ID' : 'View Your Submitted ID',
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 12,
+                                          color: Color(0xFF728D5A),
+                                        ),
+                                        textAlign: TextAlign.center,
+                                        overflow: TextOverflow.ellipsis,
                                       ),
                                     ),
-                                    if (!_isUploadingId)
-                                      const Text(
-                                        'for Verification',
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.w600,
-                                          fontSize: 11,
-                                          color: Colors.grey,
-                                        ),
-                                      ),
                                   ],
                                 ),
                               ),
-                            ],
+                            ),
                           ),
+                          Divider(height: 1, thickness: 1, color: Colors.grey.shade200),
                         ],
-                      ),
+                        // Select/Submit Button
+                        Material(
+                          color: Colors.transparent,
+                          child: InkWell(
+                            onTap: _isUploadingId ? null : _pickIdImage,
+                            borderRadius: BorderRadius.only(
+                              bottomLeft: const Radius.circular(16),
+                              bottomRight: const Radius.circular(16),
+                              topLeft: (_localIdImageFile != null || _webIdImageBytes != null || (_showSubmittedIdPreview && _submittedIdImageUrl.isNotEmpty) || (_verificationStatus == 'pending' && _submittedIdImageUrl.isNotEmpty))
+                                  ? Radius.zero
+                                  : const Radius.circular(16),
+                              topRight: (_localIdImageFile != null || _webIdImageBytes != null || (_showSubmittedIdPreview && _submittedIdImageUrl.isNotEmpty) || (_verificationStatus == 'pending' && _submittedIdImageUrl.isNotEmpty))
+                                  ? Radius.zero
+                                  : const Radius.circular(16),
+                            ),
+                            child: Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
+                              child: Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  if (_isUploadingId)
+                                    const SizedBox(
+                                      width: 20,
+                                      height: 20,
+                                      child: CircularProgressIndicator(
+                                        color: Color(0xFF728D5A),
+                                        strokeWidth: 2.5,
+                                      ),
+                                    )
+                                  else
+                                    Container(
+                                      padding: const EdgeInsets.all(8),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF728D5A).withOpacity(0.1),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: const Icon(
+                                        Icons.upload_file,
+                                        size: 20,
+                                        color: Color(0xFF728D5A),
+                                      ),
+                                    ),
+                                  const SizedBox(width: 10),
+                                  Flexible(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Text(
+                                          _isUploadingId 
+                                              ? 'Uploading...' 
+                                              : (_verificationStatus == 'pending' && _submittedIdImageUrl.isNotEmpty)
+                                                  ? 'Select Again'
+                                                  : 'Submit ID',
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w700,
+                                            fontSize: 13,
+                                            color: Color(0xFF728D5A),
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                        if (!_isUploadingId && (_verificationStatus != 'pending' || _submittedIdImageUrl.isEmpty))
+                                          const Text(
+                                            'For Verification',
+                                            style: TextStyle(
+                                              fontWeight: FontWeight.w500,
+                                              fontSize: 10,
+                                              color: Colors.grey,
+                                            ),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
+                  ],
                 ),
               ),
               // Show verification status if exists
@@ -1173,50 +1465,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           ),
                         ),
                       ],
-                    ],
-                  ),
-                ),
-              ],
-              // Show ID preview if selected
-              if (_localIdImageFile != null || _webIdImageBytes != null) ...[
-                const SizedBox(height: 15),
-                Container(
-                  width: 200,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFF728D5A), width: 2),
-                    color: Colors.grey.shade50,
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        'ID Preview:',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 12,
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(8),
-                        child: kIsWeb && _webIdImageBytes != null
-                            ? Image.memory(
-                                _webIdImageBytes!,
-                                width: double.infinity,
-                                height: 120,
-                                fit: BoxFit.cover,
-                              )
-                            : _localIdImageFile != null
-                                ? Image.file(
-                                    _localIdImageFile!,
-                                    width: double.infinity,
-                                    height: 120,
-                                    fit: BoxFit.cover,
-                                  )
-                                : const SizedBox(),
-                      ),
                     ],
                   ),
                 ),

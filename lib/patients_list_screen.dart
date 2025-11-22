@@ -734,15 +734,45 @@ class _PetDetailScreenState extends State<PetDetailScreen> {
     debugPrint('Medical History: Loading for petId: $petId');
 
     try {
+      // Load from petMedicalHistory collection
       final snapshot = await _firestore
           .collection('petMedicalHistory')
           .where('petId', isEqualTo: petId)
           .get();
       
-      debugPrint('Medical History: Found ${snapshot.docs.length} documents');
+      // Get pet species to filter immunizations
+      String? petSpecies;
+      try {
+        final petDoc = await _firestore.collection('petInfos').doc(petId).get();
+        if (petDoc.exists) {
+          petSpecies = petDoc.data()?['speciesType']?.toString();
+        }
+      } catch (e) {
+        debugPrint('Error loading pet species: $e');
+      }
+      
+      // Also load from petImmunizations collection
+      // Note: Firestore doesn't support multiple where clauses easily, so we filter in memory
+      final immunizationSnapshot = await _firestore
+          .collection('petImmunizations')
+          .where('petId', isEqualTo: petId)
+          .get();
+      
+      // Filter by species in memory if species is known
+      final filteredImmunizations = petSpecies != null && petSpecies.isNotEmpty
+          ? immunizationSnapshot.docs.where((doc) {
+              final data = doc.data();
+              final entrySpecies = data['species']?.toString().toLowerCase() ?? '';
+              return entrySpecies.isEmpty || entrySpecies == petSpecies!.toLowerCase();
+            }).toList()
+          : immunizationSnapshot.docs;
+      
+      debugPrint('Medical History: Found ${snapshot.docs.length} documents from petMedicalHistory');
+      debugPrint('Medical History: Found ${immunizationSnapshot.docs.length} documents from petImmunizations');
       
       if (mounted) {
         setState(() {
+          // Load from petMedicalHistory
           _medicalHistoryList = snapshot.docs.map<Map<String, dynamic>>((doc) {
             final data = doc.data();
             debugPrint('Medical History: Processing doc ${doc.id} with data: $data');
@@ -761,6 +791,27 @@ class _PetDetailScreenState extends State<PetDetailScreen> {
             };
           }).toList();
           
+          // Load from petImmunizations and convert to same format
+          final immunizationEntries = filteredImmunizations.map<Map<String, dynamic>>((doc) {
+            final data = doc.data();
+            return {
+              'id': doc.id,
+              'date': data['date'],
+              'title': data['vaccineName']?.toString() ?? '', // Use vaccineName as title
+              'type': 'Vaccination',
+              'description': '',
+              'vetId': data['vetId']?.toString() ?? '',
+              'vetName': data['vetName']?.toString() ?? 'Unknown',
+              'petName': data['petName']?.toString() ?? widget.petName,
+              'userId': '',
+              'createdAt': data['createdAt'],
+              'updatedAt': data['updatedAt'],
+            };
+          }).toList();
+          
+          // Combine both lists
+          _medicalHistoryList.addAll(immunizationEntries);
+          
           // Sort by date descending after loading
           _medicalHistoryList.sort((a, b) {
             final dateA = a['date'] as Timestamp?;
@@ -771,7 +822,7 @@ class _PetDetailScreenState extends State<PetDetailScreen> {
             return dateB.compareTo(dateA);
           });
           
-          debugPrint('Medical History: Loaded ${_medicalHistoryList.length} entries');
+          debugPrint('Medical History: Loaded ${_medicalHistoryList.length} total entries');
         });
       }
     } catch (e) {
@@ -798,7 +849,13 @@ class _PetDetailScreenState extends State<PetDetailScreen> {
     try {
       final vetDoc = await _firestore.collection('vets').doc(currentVet.uid).get();
       if (vetDoc.exists) {
-        vetName = vetDoc.data()?['name']?.toString() ?? 'Unknown Vet';
+        final name = vetDoc.data()?['name']?.toString() ?? 'Unknown Vet';
+        // Add "Dr." prefix if not already present
+        if (name.isNotEmpty && name != 'Unknown Vet' && !name.trim().startsWith('Dr.')) {
+          vetName = 'Dr. ${name.trim()}';
+        } else {
+          vetName = name;
+        }
       }
     } catch (e) {
       debugPrint('Error fetching vet name: $e');
@@ -1135,38 +1192,46 @@ class _PetDetailScreenState extends State<PetDetailScreen> {
                     // Buttons on the right side
                     Column(
                       children: [
-                        ElevatedButton.icon(
-                          onPressed: () async {
-                            // Use the first appointment or create a dummy one for the dialog
-                            final firstAppt = widget.appointments.isNotEmpty 
-                                ? widget.appointments.first 
-                                : <String, dynamic>{};
-                            await _showCareAdviceDialog(firstAppt);
-                          },
-                          icon: const Icon(Icons.lightbulb_outline, size: 20),
-                          label: const Text("Care Advice"),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.amber.shade700,
-                            foregroundColor: Colors.white,
-                            elevation: 2,
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
+                        SizedBox(
+                          width: 200,
+                          child: ElevatedButton.icon(
+                            onPressed: () async {
+                              // Use the first appointment or create a dummy one for the dialog
+                              final firstAppt = widget.appointments.isNotEmpty 
+                                  ? widget.appointments.first 
+                                  : <String, dynamic>{};
+                              await _showCareAdviceDialog(firstAppt);
+                            },
+                            icon: const Icon(Icons.lightbulb_outline, size: 20),
+                            label: const Text("Care Advice"),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.amber.shade700,
+                              foregroundColor: Colors.white,
+                              elevation: 2,
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                              minimumSize: const Size(double.infinity, 50),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
                             ),
                           ),
                         ),
                         const SizedBox(height: 10),
-                        ElevatedButton.icon(
-                          onPressed: () => _showMedicalHistoryDialog(),
-                          icon: const Icon(Icons.medical_services, size: 20),
-                          label: const Text("View Medical History"),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: widget.primaryGreen,
-                            foregroundColor: Colors.white,
-                            elevation: 2,
-                            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
+                        SizedBox(
+                          width: 200,
+                          child: ElevatedButton.icon(
+                            onPressed: () => _showMedicalHistoryDialog(),
+                            icon: const Icon(Icons.medical_services, size: 20),
+                            label: const Text("View Medical History"),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: widget.primaryGreen,
+                              foregroundColor: Colors.white,
+                              elevation: 2,
+                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                              minimumSize: const Size(double.infinity, 50),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
                             ),
                           ),
                         ),
@@ -1867,12 +1932,115 @@ class _MedicalHistoryDialogState extends State<_MedicalHistoryDialog> {
   final _firestore = FirebaseFirestore.instance;
   late List<Map<String, dynamic>> _editableHistory;
   int? _editingIndex;
+  
+  // Filter state
+  String? _selectedVeterinarian; // null = all, or specific vet name
+  String? _selectedVaccineType; // null = all, or specific vaccine name
+  DateTime? _startDate;
+  DateTime? _endDate;
+  bool _showFilters = false;
+  String? _petSpecies; // Cache pet species
+  List<String> _availableVaccines = []; // Cache available vaccines
+
+  // Helper function to format vet name with "Dr." prefix
+  String _formatVetName(String name) {
+    if (name.isEmpty || name == 'Unknown' || name == 'Unknown Vet') {
+      return name;
+    }
+    // Check if "Dr." is already present
+    if (name.trim().startsWith('Dr.') || name.trim().startsWith('Dr ')) {
+      return name.trim();
+    }
+    return 'Dr. ${name.trim()}';
+  }
 
   @override
   void initState() {
     super.initState();
     _editableHistory = List.from(widget.medicalHistory);
     _editingIndex = null;
+    _loadPetSpeciesAndVaccines();
+  }
+  
+  // Load pet species and vaccines for filter dropdown
+  Future<void> _loadPetSpeciesAndVaccines() async {
+    try {
+      final petDoc = await _firestore.collection('petInfos').doc(widget.petId).get();
+      if (petDoc.exists) {
+        _petSpecies = petDoc.data()?['speciesType']?.toString();
+      }
+      _availableVaccines = await _getVaccinesForSpecies(_petSpecies);
+      if (mounted) {
+        setState(() {});
+      }
+    } catch (e) {
+      debugPrint('Error loading pet species and vaccines: $e');
+    }
+  }
+  
+  // Get unique list of veterinarians from history
+  List<String> _getUniqueVeterinarians() {
+    final Set<String> vets = {};
+    for (var entry in _editableHistory) {
+      final vetName = entry['vetName']?.toString() ?? '';
+      if (vetName.isNotEmpty && vetName != 'Unknown') {
+        vets.add(_formatVetName(vetName));
+      }
+    }
+    return vets.toList()..sort();
+  }
+  
+  // Apply filters to vaccine entries
+  bool _shouldShowEntry({
+    required String vaccine,
+    required Map<String, dynamic>? entryData,
+    required String vetName,
+  }) {
+    // Veterinarian filter
+    if (_selectedVeterinarian != null && _selectedVeterinarian!.isNotEmpty) {
+      if (vetName != _selectedVeterinarian) {
+        return false;
+      }
+    }
+    
+    // Vaccine type filter
+    if (_selectedVaccineType != null && _selectedVaccineType!.isNotEmpty) {
+      if (vaccine != _selectedVaccineType) {
+        return false;
+      }
+    }
+    
+    // Date range filter
+    if (entryData != null && entryData['date'] != null) {
+      final date = entryData['date'] is Timestamp
+          ? (entryData['date'] as Timestamp).toDate()
+          : null;
+      
+      if (date != null) {
+        if (_startDate != null && date.isBefore(_startDate!)) {
+          return false;
+        }
+        if (_endDate != null && date.isAfter(_endDate!.add(const Duration(days: 1)))) {
+          return false;
+        }
+      }
+    } else {
+      // If filtering by date range and entry has no date, exclude it
+      if (_startDate != null || _endDate != null) {
+        return false;
+      }
+    }
+    
+    return true;
+  }
+  
+  void _clearFilters() {
+    setState(() {
+      _selectedVeterinarian = null;
+      _selectedVaccineType = null;
+      _startDate = null;
+      _endDate = null;
+    });
   }
 
   void _addNewEntry() {
@@ -1884,7 +2052,7 @@ class _MedicalHistoryDialogState extends State<_MedicalHistoryDialog> {
         'type': '',
         'description': '', // Internal use, will be saved as 'notes'
         'vetId': widget.vetId,
-        'vetName': widget.vetName,
+        'vetName': _formatVetName(widget.vetName),
         'petName': widget.petName,
       });
       _editingIndex = 0;
@@ -1918,7 +2086,7 @@ class _MedicalHistoryDialogState extends State<_MedicalHistoryDialog> {
         'type': type,
         'description': description,
         'vetId': widget.vetId,
-        'vetName': widget.vetName,
+        'vetName': _formatVetName(widget.vetName),
       };
       _editingIndex = null;
     });
@@ -1936,32 +2104,135 @@ class _MedicalHistoryDialogState extends State<_MedicalHistoryDialog> {
       final originalIds = widget.medicalHistory.map((h) => h['id'] as String?).whereType<String>().toSet();
       final updatedIds = _editableHistory.map((h) => h['id'] as String?).whereType<String>().toSet();
       
-      // Delete removed entries
+      // Delete removed entries (only if current vet created them)
       final deletedIds = originalIds.difference(updatedIds);
       for (final id in deletedIds) {
-        await _firestore.collection('petMedicalHistory').doc(id).delete();
+        // Check if current vet created this entry before deleting
+        final originalEntry = widget.medicalHistory.firstWhere(
+          (h) => h['id'] == id,
+          orElse: () => {},
+        );
+        final originalVetId = originalEntry['vetId']?.toString() ?? '';
+        if (originalVetId == widget.vetId) {
+          // Check if it's a vaccination entry
+          final entryType = originalEntry['type']?.toString() ?? '';
+          final entryTitle = originalEntry['title']?.toString() ?? '';
+          final isVaccination = entryType.toLowerCase() == 'vaccination' ||
+                               entryTitle.toLowerCase().contains('vaccine') ||
+                               _isVaccineName(entryTitle);
+          
+          if (isVaccination) {
+            await _firestore.collection('petImmunizations').doc(id).delete();
+          } else {
+            await _firestore.collection('petMedicalHistory').doc(id).delete();
+          }
+        }
       }
       
       // Save/update each entry
       for (final entry in _editableHistory) {
         final id = entry['id'] as String?;
-        final entryData = {
-          'petId': widget.petId,
-          'petName': widget.petName,
-          'date': entry['date'],
-          'name': entry['title']?.toString() ?? '', // Save as 'name' in Firebase
-          'type': entry['type']?.toString() ?? '',
-          'notes': entry['description']?.toString() ?? '', // Save as 'notes' in Firebase
-          'vetId': widget.vetId,
-          'vetName': widget.vetName,
-          'updatedAt': FieldValue.serverTimestamp(),
-        };
         
+        // If updating existing entry, check permissions
         if (id != null && id.isNotEmpty) {
-          await _firestore.collection('petMedicalHistory').doc(id).update(entryData);
+          final originalEntry = widget.medicalHistory.firstWhere(
+            (h) => h['id'] == id,
+            orElse: () => {},
+          );
+          final originalVetId = originalEntry['vetId']?.toString() ?? '';
+          
+          // Only allow update if current vet created this entry
+          if (originalVetId != widget.vetId) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('❌ You can only edit entries you created'),
+                  backgroundColor: Colors.red,
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            }
+            continue; // Skip this entry
+          }
+        }
+        
+        // Check if this is a vaccination entry (should go to petImmunizations)
+        final entryType = entry['type']?.toString() ?? '';
+        final entryTitle = entry['title']?.toString() ?? '';
+        final isVaccination = entryType.toLowerCase() == 'vaccination' ||
+                             entryTitle.toLowerCase().contains('vaccine') ||
+                             _isVaccineName(entryTitle);
+        
+        if (isVaccination) {
+          // Get pet species before saving
+          String? petSpecies;
+          try {
+            final petDoc = await _firestore.collection('petInfos').doc(widget.petId).get();
+            if (petDoc.exists) {
+              petSpecies = petDoc.data()?['speciesType']?.toString();
+            }
+          } catch (e) {
+            debugPrint('Error loading pet species for save: $e');
+          }
+          
+          // Save to petImmunizations collection
+          final immunizationData = {
+            'petId': widget.petId,
+            'petName': widget.petName,
+            'vaccineName': entry['title']?.toString() ?? '',
+            'species': petSpecies?.toLowerCase() ?? '',
+            'date': entry['date'],
+            'vetId': widget.vetId,
+            'vetName': _formatVetName(widget.vetName),
+            'updatedAt': FieldValue.serverTimestamp(),
+          };
+          
+          if (id != null && id.isNotEmpty) {
+            // Check if entry exists in petImmunizations and belongs to current vet
+            final doc = await _firestore.collection('petImmunizations').doc(id).get();
+            if (doc.exists) {
+              final docData = doc.data();
+              final docVetId = docData?['vetId']?.toString() ?? '';
+              
+              // Only update if this entry belongs to the current vet
+              if (docVetId == widget.vetId) {
+                await _firestore.collection('petImmunizations').doc(id).update(immunizationData);
+              } else {
+                // Entry belongs to another vet - create a new entry instead
+                debugPrint('Entry belongs to another vet, creating new entry instead');
+                immunizationData['createdAt'] = FieldValue.serverTimestamp();
+                await _firestore.collection('petImmunizations').add(immunizationData);
+              }
+            } else {
+              // If not in petImmunizations, create new entry
+              immunizationData['createdAt'] = FieldValue.serverTimestamp();
+              await _firestore.collection('petImmunizations').add(immunizationData);
+            }
+          } else {
+            // Always create new entry when id is null (new entry)
+            immunizationData['createdAt'] = FieldValue.serverTimestamp();
+            await _firestore.collection('petImmunizations').add(immunizationData);
+          }
         } else {
-          entryData['createdAt'] = FieldValue.serverTimestamp();
-          await _firestore.collection('petMedicalHistory').add(entryData);
+          // Save to petMedicalHistory collection for non-vaccination entries
+          final entryData = {
+            'petId': widget.petId,
+            'petName': widget.petName,
+            'date': entry['date'],
+            'name': entry['title']?.toString() ?? '', // Save as 'name' in Firebase
+            'type': entry['type']?.toString() ?? '',
+            'notes': entry['description']?.toString() ?? '', // Save as 'notes' in Firebase
+            'vetId': widget.vetId,
+            'vetName': _formatVetName(widget.vetName),
+            'updatedAt': FieldValue.serverTimestamp(),
+          };
+          
+          if (id != null && id.isNotEmpty) {
+            await _firestore.collection('petMedicalHistory').doc(id).update(entryData);
+          } else {
+            entryData['createdAt'] = FieldValue.serverTimestamp();
+            await _firestore.collection('petMedicalHistory').add(entryData);
+          }
         }
       }
       
@@ -1976,6 +2247,518 @@ class _MedicalHistoryDialogState extends State<_MedicalHistoryDialog> {
             duration: const Duration(seconds: 3),
           ),
         );
+      }
+    }
+  }
+
+  // Helper method to build table header cell
+  Widget _buildTableHeaderCell(String text) {
+    return TableCell(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+        constraints: const BoxConstraints(
+          minWidth: 70,
+          minHeight: 35,
+        ),
+        child: Center(
+          child: Text(
+            text,
+            style: const TextStyle(
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+              fontSize: 11,
+            ),
+            textAlign: TextAlign.center,
+            overflow: TextOverflow.ellipsis,
+            maxLines: 1,
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Helper method to build table data cell
+  Widget _buildTableDataCell(String text, {bool isBold = false}) {
+    return TableCell(
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+        constraints: const BoxConstraints(
+          minWidth: 70,
+          minHeight: 35,
+        ),
+        child: Center(
+          child: Text(
+            text.isEmpty ? '-' : text,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: isBold ? FontWeight.w600 : FontWeight.normal,
+            ),
+            textAlign: TextAlign.center,
+            overflow: TextOverflow.ellipsis,
+            maxLines: 1,
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Get vaccines based on pet species
+  Future<List<String>> _getVaccinesForSpecies(String? species) async {
+    // Default vaccines that apply to both
+    final commonVaccines = ['Rabies', 'Heartworm Prevention'];
+    
+    if (species == null) return commonVaccines;
+    
+    final speciesLower = species.toLowerCase();
+    
+    // Try to load from Firebase first
+    try {
+      final vaccinesSnapshot = await _firestore
+          .collection('vaccines')
+          .where('species', isEqualTo: speciesLower)
+          .get();
+      
+      if (vaccinesSnapshot.docs.isNotEmpty) {
+        // Convert to list with order
+        final vaccinesList = vaccinesSnapshot.docs.map((doc) {
+          final data = doc.data();
+          return {
+            'name': data['name']?.toString() ?? '',
+            'order': (data['order'] as num?)?.toInt() ?? 999,
+          };
+        }).toList();
+        
+        // Sort by order
+        vaccinesList.sort((a, b) => (a['order'] as int).compareTo(b['order'] as int));
+        
+        // Extract names
+        final vaccines = vaccinesList
+            .map((v) => v['name'] as String)
+            .where((name) => name.isNotEmpty)
+            .toList();
+            
+        if (vaccines.isNotEmpty) {
+          return [...commonVaccines, ...vaccines];
+        }
+      }
+    } catch (e) {
+      debugPrint('Error loading vaccines from Firebase: $e');
+    }
+    
+    // Fallback to hardcoded lists if Firebase doesn't have data
+    if (speciesLower.contains('dog') || speciesLower.contains('canine')) {
+      return [
+        ...commonVaccines,
+        'DHPP (Distemper, Hepatitis, Parvovirus, Parainfluenza)',
+        'Bordetella',
+        'Leptospirosis',
+        'Lyme Disease',
+        'Canine Influenza',
+        'Coronavirus',
+        'Adenovirus-2',
+      ];
+    } else if (speciesLower.contains('cat') || speciesLower.contains('feline')) {
+      return [
+        ...commonVaccines,
+        'FVRCP (Feline Viral Rhinotracheitis, Calicivirus, Panleukopenia)',
+        'Feline Leukemia (FeLV)',
+        'Feline Immunodeficiency Virus (FIV)',
+        'Chlamydophila',
+        'Bordetella',
+      ];
+    }
+    
+    return commonVaccines;
+  }
+
+  // Build vaccine rows for the immunization table
+  Future<List<TableRow>> _buildVaccineRowsAsync() async {
+    // Get pet species from widget or load it
+    String? petSpecies;
+    try {
+      final petDoc = await _firestore.collection('petInfos').doc(widget.petId).get();
+      if (petDoc.exists) {
+        petSpecies = petDoc.data()?['speciesType']?.toString();
+      }
+    } catch (e) {
+      debugPrint('Error loading pet species: $e');
+    }
+    
+    // Get vaccines for this species
+    final vaccines = await _getVaccinesForSpecies(petSpecies);
+
+    // Group history entries by vaccine type (title)
+    final Map<String, List<Map<String, dynamic>>> vaccineHistory = {};
+    for (var entry in _editableHistory) {
+      final title = entry['title']?.toString().toLowerCase() ?? '';
+      final vetId = entry['vetId']?.toString() ?? '';
+      final vetNameRaw = entry['vetName']?.toString() ?? 'Unknown';
+      final vetName = _formatVetName(vetNameRaw);
+      final entryId = entry['id'];
+      
+      // Try to match vaccine name (case-insensitive partial match)
+      String? matchedVaccine;
+      for (var vaccine in vaccines) {
+        final vaccineLower = vaccine.toLowerCase();
+        if (title.contains(vaccineLower) || 
+            vaccineLower.contains(title) ||
+            _matchesVaccineName(title, vaccineLower)) {
+          matchedVaccine = vaccine;
+          break;
+        }
+      }
+      
+      // If no match, use the title as-is
+      final vaccineKey = matchedVaccine ?? title;
+      
+      if (!vaccineHistory.containsKey(vaccineKey)) {
+        vaccineHistory[vaccineKey] = [];
+      }
+      vaccineHistory[vaccineKey]!.add({
+        'vetId': vetId,
+        'vetName': vetName,
+        'id': entryId,
+        'entry': entry,
+      });
+    }
+
+    // Build rows for each vaccine
+    // If multiple entries exist for a vaccine, create a row for each entry
+    final List<TableRow> allRows = [];
+    
+    for (final vaccineEntry in vaccines.asMap().entries) {
+      final index = vaccineEntry.key;
+      final vaccine = vaccineEntry.value;
+      final entries = vaccineHistory[vaccine] ?? [];
+      
+      if (entries.isEmpty) {
+        // No entries - show one row with Add button (only if filters allow)
+        if (_shouldShowEntry(vaccine: vaccine, entryData: null, vetName: '')) {
+          final isEvenRow = index % 2 == 0;
+          allRows.add(_buildVaccineTableRow(
+            vaccine: vaccine,
+            index: index,
+            isEvenRow: isEvenRow,
+            entryData: null,
+            entryVetId: '',
+            vetName: '',
+          ));
+        }
+      } else {
+        // Show a row for each entry (one per vet) - apply filters
+        for (final entryInfo in entries) {
+          final entryData = entryInfo['entry'] as Map<String, dynamic>?;
+          final entryVetId = entryInfo['vetId'] as String? ?? '';
+          final vetNameRaw = entryInfo['vetName'] as String? ?? '';
+          final vetName = _formatVetName(vetNameRaw);
+          
+          // Apply filters
+          if (_shouldShowEntry(
+            vaccine: vaccine,
+            entryData: entryData,
+            vetName: vetName,
+          )) {
+            allRows.add(_buildVaccineTableRow(
+              vaccine: vaccine,
+              index: index,
+              isEvenRow: index % 2 == 0,
+              entryData: entryData,
+              entryVetId: entryVetId,
+              vetName: vetName,
+            ));
+          }
+        }
+      }
+    }
+    
+    return allRows;
+  }
+
+  // Helper method to build a single vaccine table row
+  TableRow _buildVaccineTableRow({
+    required String vaccine,
+    required int index,
+    required bool isEvenRow,
+    required Map<String, dynamic>? entryData,
+    required String entryVetId,
+    required String vetName,
+  }) {
+    // Get formatted date
+    String dateText = '';
+    if (entryData != null && entryData['date'] != null) {
+      if (entryData['date'] is Timestamp) {
+        dateText = widget.formatDate(entryData['date'] as Timestamp);
+        // Format to show only date part (remove time)
+        if (dateText.contains(' ')) {
+          dateText = dateText.split(' ')[0];
+        }
+      }
+    }
+    
+    // Check if current vet can edit/delete (only if they created this entry)
+    final canEdit = entryVetId == widget.vetId || entryData == null;
+
+    return TableRow(
+        decoration: BoxDecoration(
+          color: isEvenRow 
+              ? widget.primaryGreen.withOpacity(0.1)
+              : widget.primaryGreen.withOpacity(0.05),
+        ),
+        children: [
+          _buildTableDataCell(vaccine, isBold: true),
+          _buildTableDataCell(dateText),
+          _buildTableDataCell(vetName),
+          TableCell(
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+              child: canEdit
+                  ? Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        ElevatedButton.icon(
+                          onPressed: () {
+                            // If entry exists and belongs to current vet, edit it
+                            // Otherwise, always add a new entry (don't replace another vet's entry)
+                            if (entryData != null && entryVetId == widget.vetId) {
+                              _addOrEditVaccineEntry(vaccine, entryData);
+                            } else {
+                              // Always create new entry when adding (don't pass existing entry)
+                              _addOrEditVaccineEntry(vaccine, null);
+                            }
+                          },
+                          icon: Icon(
+                            (entryData != null && entryVetId == widget.vetId) ? Icons.edit : Icons.add,
+                            size: 12,
+                          ),
+                          label: Text(
+                            (entryData != null && entryVetId == widget.vetId) ? 'Edit' : 'Add',
+                            style: const TextStyle(fontSize: 9),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: widget.primaryGreen,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                            minimumSize: const Size(50, 24),
+                          ),
+                        ),
+                        if (entryData != null) ...[
+                          const SizedBox(width: 4),
+                          IconButton(
+                            onPressed: () => _deleteVaccineEntry(vaccine, entryData),
+                            icon: const Icon(Icons.delete, size: 16),
+                            color: Colors.red,
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(
+                              minWidth: 28,
+                              minHeight: 28,
+                            ),
+                            tooltip: 'Delete',
+                          ),
+                        ],
+                      ],
+                    )
+                  : Text(
+                      'Locked',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: Colors.grey.shade600,
+                        fontStyle: FontStyle.italic,
+                      ),
+                      textAlign: TextAlign.center,
+                    ),
+            ),
+          ),
+        ],
+      );
+  }
+
+  // Helper to match vaccine names with variations
+  bool _matchesVaccineName(String entryTitle, String vaccineName) {
+    // Handle common variations
+    final variations = {
+      'dhpp': ['distemper', 'hepatitis', 'parvovirus', 'parainfluenza'],
+      'fvrcp': ['feline viral rhinotracheitis', 'calicivirus', 'panleukopenia'],
+      'felv': ['feline leukemia'],
+      'fiv': ['feline immunodeficiency'],
+    };
+    
+    for (var entry in variations.entries) {
+      if (vaccineName.contains(entry.key) || entry.key.contains(vaccineName)) {
+        return entry.value.any((variant) => entryTitle.contains(variant));
+      }
+    }
+    return false;
+  }
+
+  // Helper method to check if a name is a vaccine
+  bool _isVaccineName(String name) {
+    final vaccines = [
+      'rabies', 'distemper', 'parvovirus', 'panleukopenia', 'bordetella',
+      'leptospirosis', 'coronavirus', 'heartworm', 'fvrcp', 'dhpp',
+      'feline leukemia', 'lyme disease', 'canine influenza', 'adenovirus',
+      'hepatitis', 'parainfluenza'
+    ];
+    final nameLower = name.toLowerCase();
+    return vaccines.any((vaccine) => nameLower.contains(vaccine) || vaccine.contains(nameLower));
+  }
+
+  // Delete vaccine entry
+  Future<void> _deleteVaccineEntry(String vaccineName, Map<String, dynamic> entryData) async {
+    // Check if current vet created this entry
+    final entryVetId = entryData['vetId']?.toString() ?? '';
+    if (entryVetId != widget.vetId) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('❌ You can only delete entries you created'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+      return;
+    }
+
+    // Show confirmation dialog
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Immunization'),
+        content: Text('Are you sure you want to delete the $vaccineName immunization record?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context, true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      final entryId = entryData['id'];
+      if (entryId != null && entryId.toString().isNotEmpty) {
+        // Delete from Firebase petImmunizations collection
+        await _firestore.collection('petImmunizations').doc(entryId.toString()).delete();
+        
+        // Also remove from local editable history
+        setState(() {
+          _editableHistory.removeWhere((e) => e['id'] == entryId);
+        });
+
+        // Reload the data
+        widget.onSave();
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('✅ $vaccineName immunization deleted successfully!'),
+              backgroundColor: widget.primaryGreen,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Error deleting immunization: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Error deleting immunization: $e'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    }
+  }
+
+  // Add or edit vaccine entry
+  void _addOrEditVaccineEntry(String vaccineName, Map<String, dynamic>? existingEntry) async {
+    if (existingEntry != null) {
+      // Find the index of this entry in _editableHistory
+      final entryId = existingEntry['id'];
+      final index = _editableHistory.indexWhere((e) => e['id'] == entryId);
+      if (index != -1) {
+        setState(() {
+          _editingIndex = index;
+        });
+      }
+    } else {
+      // Get pet species before saving
+      String? petSpecies;
+      try {
+        final petDoc = await _firestore.collection('petInfos').doc(widget.petId).get();
+        if (petDoc.exists) {
+          petSpecies = petDoc.data()?['speciesType']?.toString();
+        }
+      } catch (e) {
+        debugPrint('Error loading pet species: $e');
+      }
+
+      // Save directly to Firebase petImmunizations collection
+      try {
+        final immunizationData = {
+          'petId': widget.petId,
+          'petName': widget.petName,
+          'vaccineName': vaccineName,
+          'species': petSpecies?.toLowerCase() ?? '',
+          'date': Timestamp.now(),
+          'vetId': widget.vetId,
+          'vetName': _formatVetName(widget.vetName),
+          'createdAt': FieldValue.serverTimestamp(),
+          'updatedAt': FieldValue.serverTimestamp(),
+        };
+        
+        await _firestore.collection('petImmunizations').add(immunizationData);
+        
+        // Also add to editable history for display
+        setState(() {
+          _editableHistory.insert(0, {
+            'id': null,
+            'date': Timestamp.now(),
+            'title': vaccineName,
+            'type': 'Vaccination',
+            'description': '',
+            'vetId': widget.vetId,
+            'vetName': _formatVetName(widget.vetName),
+            'petName': widget.petName,
+          });
+        });
+        
+        // Reload the editable history by calling widget.onSave which will reload from parent
+        widget.onSave();
+        
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('✅ $vaccineName immunization added successfully!'),
+              backgroundColor: widget.primaryGreen,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      } catch (e) {
+        debugPrint('Error saving immunization: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('❌ Error saving immunization: $e'),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
       }
     }
   }
@@ -2001,7 +2784,8 @@ class _MedicalHistoryDialogState extends State<_MedicalHistoryDialog> {
         ],
       ),
       content: SizedBox(
-        width: double.maxFinite,
+        width: 600, // Fixed width for the popup card
+        height: 600, // Fixed height for the popup card
         child: SingleChildScrollView(
           child: _editableHistory.isEmpty && _editingIndex == null
               ? Padding(
@@ -2024,112 +2808,258 @@ class _MedicalHistoryDialogState extends State<_MedicalHistoryDialog> {
                     ],
                   ),
                 )
-              : Column(
-                  children: _editableHistory.asMap().entries.map((entry) {
-                    final index = entry.key;
-                    final history = entry.value;
-                    final isEditing = _editingIndex == index;
-
-                    if (isEditing) {
-                      return _EditMedicalHistoryCard(
-                        history: history,
-                        primaryGreen: widget.primaryGreen,
-                        onSave: (date, title, type, description) => _saveEntry(index, date, title, type, description),
-                        onCancel: _cancelEdit,
-                      );
-                    }
-
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 12),
-                      color: Colors.blue.shade50,
-                      elevation: 1,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                        side: BorderSide(color: Colors.blue.shade200),
+              : Center(
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                    // Show edit card if editing
+                    if (_editingIndex != null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: _EditMedicalHistoryCard(
+                          history: _editableHistory[_editingIndex!],
+                          primaryGreen: widget.primaryGreen,
+                          onSave: (date, title, type, description) => _saveEntry(_editingIndex!, date, title, type, description),
+                          onCancel: _cancelEdit,
+                        ),
                       ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(14),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
+                    // Filter Section - Match table width
+                    // Table: columns (520px) + table borders (7.5px) + container border (4px) = 531.5px
+                    // Filter: content (520px + 30px spacing) + padding (24px) = 574px, but we want to match table container
+                    // So filter container width = table container width = 528px (set on table) + 4px border = 532px
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade100,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: widget.primaryGreen.withOpacity(0.3)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.filter_list, color: widget.primaryGreen, size: 20),
+                              const SizedBox(width: 8),
+                              const Text(
+                                'Filters',
+                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                              ),
+                              const Spacer(),
+                              IconButton(
+                                icon: Icon(
+                                  _showFilters ? Icons.expand_less : Icons.expand_more,
+                                  color: widget.primaryGreen,
+                                ),
+                                onPressed: () {
+                                  setState(() {
+                                    _showFilters = !_showFilters;
+                                  });
+                                },
+                                tooltip: _showFilters ? 'Hide filters' : 'Show filters',
+                              ),
+                            ],
+                          ),
+                          if (_showFilters) ...[
+                            const SizedBox(height: 12),
                             Row(
+                              mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.medical_services, size: 18, color: widget.primaryGreen),
-                                const SizedBox(width: 6),
+                                // Veterinarian Filter - all filters same size
                                 Expanded(
-                                  child: Text(
-                                    history['title'] ?? 'Medical Entry',
-                                    style: const TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.black87,
+                                  child: SizedBox(
+                                    height: 48,
+                                    child: DropdownButtonFormField<String>(
+                                      value: _selectedVeterinarian,
+                                      isExpanded: true,
+                                      decoration: InputDecoration(
+                                        labelText: 'Veterinarian',
+                                        border: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                        isDense: true,
+                                      ),
+                                      items: [
+                                        const DropdownMenuItem(value: null, child: Text('All Vets', overflow: TextOverflow.ellipsis)),
+                                        ..._getUniqueVeterinarians().map((vet) => DropdownMenuItem(
+                                          value: vet,
+                                          child: Text(vet, overflow: TextOverflow.ellipsis, maxLines: 1),
+                                        )),
+                                      ],
+                                      onChanged: (value) {
+                                        setState(() {
+                                          _selectedVeterinarian = value;
+                                        });
+                                      },
                                     ),
                                   ),
                                 ),
-                                IconButton(
-                                  icon: Icon(Icons.edit, size: 18, color: widget.primaryGreen),
-                                  onPressed: () => _editEntry(index),
-                                  tooltip: 'Edit',
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.delete, size: 18, color: Colors.red),
-                                  onPressed: () => _deleteEntry(index),
-                                  tooltip: 'Delete',
-                                ),
-                              ],
-                            ),
-                            if ((history['type'] ?? '').isNotEmpty) ...[
-                              const SizedBox(height: 6),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: widget.primaryGreen.withOpacity(0.1),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: Text(
-                                  'Type: ${history['type']}',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w600,
-                                    color: widget.primaryGreen,
+                                const SizedBox(width: 8),
+                                // Vaccine Type Filter - all filters same size
+                                Expanded(
+                                  child: SizedBox(
+                                    height: 48,
+                                    child: _availableVaccines.isEmpty
+                                        ? const SizedBox(
+                                            height: 48,
+                                            child: Center(child: CircularProgressIndicator()),
+                                          )
+                                        : DropdownButtonFormField<String>(
+                                            value: _selectedVaccineType,
+                                            isExpanded: true,
+                                            decoration: InputDecoration(
+                                              labelText: 'Vaccine Type',
+                                              border: OutlineInputBorder(
+                                                borderRadius: BorderRadius.circular(8),
+                                              ),
+                                              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                              isDense: true,
+                                            ),
+                                            items: [
+                                              const DropdownMenuItem(value: null, child: Text('All Vaccines', overflow: TextOverflow.ellipsis)),
+                                              ..._availableVaccines.map((vaccine) => DropdownMenuItem(
+                                                value: vaccine,
+                                                child: Text(vaccine, overflow: TextOverflow.ellipsis, maxLines: 1),
+                                              )),
+                                            ],
+                                            onChanged: (value) {
+                                              setState(() {
+                                                _selectedVaccineType = value;
+                                              });
+                                            },
+                                          ),
                                   ),
                                 ),
-                              ),
-                            ],
-                            const SizedBox(height: 6),
-                            Row(
-                              children: [
-                                Icon(Icons.calendar_today, size: 14, color: Colors.grey.shade600),
-                                const SizedBox(width: 4),
-                                Text(
-                                  history['date'] is Timestamp
-                                      ? widget.formatDate(history['date'] as Timestamp)
-                                      : 'Date not set',
-                                  style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                                const SizedBox(width: 8),
+                                // Date Range Filter - fit to text
+                                SizedBox(
+                                  height: 48,
+                                  child: OutlinedButton.icon(
+                                    onPressed: () async {
+                                      final DateTimeRange? picked = await showDateRangePicker(
+                                        context: context,
+                                        firstDate: DateTime(2000),
+                                        lastDate: DateTime.now().add(const Duration(days: 365)),
+                                        initialDateRange: _startDate != null && _endDate != null
+                                            ? DateTimeRange(start: _startDate!, end: _endDate!)
+                                            : null,
+                                      );
+                                      if (picked != null) {
+                                        setState(() {
+                                          _startDate = picked.start;
+                                          _endDate = picked.end;
+                                        });
+                                      }
+                                    },
+                                    icon: const Icon(Icons.calendar_today, size: 12),
+                                    label: Text(
+                                      _startDate != null && _endDate != null
+                                          ? '${DateFormat('MM/dd').format(_startDate!)} - ${DateFormat('MM/dd').format(_endDate!)}'
+                                          : 'Date Range',
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(fontSize: 11),
+                                    ),
+                                    style: OutlinedButton.styleFrom(
+                                      fixedSize: const Size.fromHeight(48),
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                      minimumSize: const Size(0, 48),
+                                      alignment: Alignment.centerLeft,
+                                    ),
+                                  ),
                                 ),
-                                const SizedBox(width: 12),
-                                Icon(Icons.person, size: 14, color: Colors.grey.shade600),
-                                const SizedBox(width: 4),
-                                Text(
-                                  'By: ${history['vetName'] ?? 'Unknown'}',
-                                  style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                                const SizedBox(width: 8),
+                                // Clear Filters Button - fit to text
+                                SizedBox(
+                                  height: 48,
+                                  child: OutlinedButton.icon(
+                                    onPressed: _clearFilters,
+                                    icon: const Icon(Icons.clear, size: 12),
+                                    label: const Text('Clear', style: TextStyle(fontSize: 11)),
+                                    style: OutlinedButton.styleFrom(
+                                      foregroundColor: Colors.red,
+                                      fixedSize: const Size.fromHeight(48),
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                      minimumSize: const Size(0, 48),
+                                      alignment: Alignment.centerLeft,
+                                    ),
+                                  ),
                                 ),
                               ],
                             ),
-                            const SizedBox(height: 10),
-                            Text(
-                              history['description'] ?? '',
-                              style: TextStyle(
-                                fontSize: 14,
-                                color: Colors.grey.shade800,
-                                height: 1.5,
-                              ),
-                            ),
                           ],
-                        ),
+                        ],
                       ),
-                    );
-                  }).toList(),
+                    ),
+                    // Immunization Record Table (matching the form format)
+                    Container(
+                      decoration: BoxDecoration(
+                        border: Border.all(color: widget.primaryGreen, width: 2),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: FutureBuilder<List<TableRow>>(
+                        future: _buildVaccineRowsAsync(),
+                        builder: (context, snapshot) {
+                          if (snapshot.connectionState == ConnectionState.waiting) {
+                            return const Padding(
+                              padding: EdgeInsets.all(20.0),
+                              child: Center(child: CircularProgressIndicator()),
+                            );
+                          }
+                          if (snapshot.hasError) {
+                            return Padding(
+                              padding: const EdgeInsets.all(20.0),
+                              child: Text('Error loading vaccines: ${snapshot.error}'),
+                            );
+                          }
+                          
+                          final vaccineRows = snapshot.data ?? [];
+                          
+                          return SizedBox(
+                            height: 400,
+                            child: SingleChildScrollView(
+                              scrollDirection: Axis.vertical,
+                              child: SingleChildScrollView(
+                                scrollDirection: Axis.horizontal,
+                                child: Table(
+                                  border: TableBorder.all(
+                                    color: widget.primaryGreen,
+                                    width: 1.5,
+                                  ),
+                                  columnWidths: const {
+                                    0: FixedColumnWidth(160), // Vaccine column
+                                    1: FixedColumnWidth(110), // Date column
+                                    2: FixedColumnWidth(120), // Veterinarian column
+                                    3: FixedColumnWidth(130),  // Actions column
+                                  },
+                                      children: [
+                                        // Header row
+                                        TableRow(
+                                          decoration: BoxDecoration(
+                                            color: widget.primaryGreen,
+                                          ),
+                                          children: [
+                                            _buildTableHeaderCell('Vaccine'),
+                                            _buildTableHeaderCell('Date'),
+                                            _buildTableHeaderCell('Veterinarian'),
+                                            _buildTableHeaderCell('Actions'),
+                                          ],
+                                        ),
+                                        // Vaccine rows
+                                        ...vaccineRows,
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              );
+                        },
+                      ),
+                    ),
+                    ],
+                  ),
                 ),
         ),
       ),

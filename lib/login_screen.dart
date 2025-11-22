@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:provider/provider.dart';
 // Keep for now if the library is still included, but the function is removed.
 import 'package:google_sign_in/google_sign_in.dart';
 import 'dashboard_screen.dart';
 import 'signup_screen.dart';
+import 'notification_service.dart';
 
 class LoginScreen extends StatefulWidget {
   final String registeredEmail;
@@ -116,6 +118,10 @@ class _LoginScreenState extends State<LoginScreen> {
         await prefs.setString('email', data['email'] ?? '');
       }
 
+      // Reinitialize notification service on successful login
+      final notificationService = Provider.of<NotificationService>(context, listen: false);
+      await notificationService.reinitializeOnLogin();
+
       if (!mounted) return;
       Navigator.pushReplacement(
         context,
@@ -184,6 +190,10 @@ class _LoginScreenState extends State<LoginScreen> {
           'createdAt': FieldValue.serverTimestamp(),
         });
       }
+
+      // Reinitialize notification service on successful login
+      final notificationService = Provider.of<NotificationService>(context, listen: false);
+      await notificationService.reinitializeOnLogin();
 
       if (!mounted) return;
       Navigator.pushReplacement(
