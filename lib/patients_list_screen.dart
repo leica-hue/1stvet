@@ -6,6 +6,7 @@ import 'vet_history_notes_screen.dart';
 import 'dart:async'; // Import for StreamSubscription
 import 'common_sidebar.dart';
 import 'package:firebase_storage/firebase_storage.dart' as firebase_storage;
+import 'payment_option_screen.dart';
 
 class PatientHistoryScreen extends StatefulWidget {
   const PatientHistoryScreen({super.key});
@@ -36,12 +37,55 @@ class _PatientHistoryScreenState extends State<PatientHistoryScreen> {
   StreamSubscription? _appointmentSubscription;
   bool _isLoading = true;
   final Map<String, String?> _imageUrlCache = {};
+  
+  // Premium status
+  bool _isPremium = false;
+  static const int _basicPatientLimit = 50;
 
   @override
   void initState() {
     super.initState();
     _searchController.addListener(_onSearchChanged);
+    _checkPremiumStatus();
     _fetchAndListenForData();
+  }
+  
+  Future<void> _checkPremiumStatus() async {
+    final currentUser = _auth.currentUser;
+    if (currentUser == null) {
+      setState(() {
+        _isPremium = false;
+      });
+      return;
+    }
+
+    try {
+      final vetDoc = await _firestore.collection('vets').doc(currentUser.uid).get();
+      if (vetDoc.exists) {
+        final data = vetDoc.data();
+        final premiumUntil = data?['premiumUntil'] as Timestamp?;
+        final isPremium = data?['isPremium'] as bool? ?? false;
+        
+        bool hasActivePremium = false;
+        if (premiumUntil != null) {
+          final premiumDate = premiumUntil.toDate();
+          hasActivePremium = premiumDate.isAfter(DateTime.now());
+        }
+        
+      setState(() {
+        _isPremium = hasActivePremium || isPremium;
+      });
+    } else {
+      setState(() {
+        _isPremium = false;
+      });
+    }
+  } catch (e) {
+    debugPrint("Error checking premium status: $e");
+    setState(() {
+      _isPremium = false;
+    });
+  }
   }
 
   // --- Helper Methods ---
@@ -305,11 +349,71 @@ class _PatientHistoryScreenState extends State<PatientHistoryScreen> {
       return sortDescending ? dateB.compareTo(dateA) : dateA.compareTo(dateB);
     });
 
-    // 6. Update state
+    // 6. Apply premium limit for basic users (limit to last 50 patients)
+    List<Map<String, dynamic>> limitedPets = filteredPets;
+    if (!_isPremium && filteredPets.length > _basicPatientLimit) {
+      limitedPets = filteredPets.take(_basicPatientLimit).toList();
+    }
+
+    // 7. Update state
     setState(() {
       searchQuery = query;
-      _filteredPets = filteredPets;
+      _filteredPets = limitedPets;
     });
+  }
+  
+  Widget _buildPremiumLimitBanner() {
+    // Count unique patients from all appointments
+    final uniquePatientCount = _appointmentsByPet.keys.length;
+    final isLimited = uniquePatientCount > _basicPatientLimit;
+    
+    if (!isLimited) return const SizedBox.shrink();
+    
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: Colors.amber.shade50,
+        border: Border(
+          bottom: BorderSide(color: Colors.amber.shade200, width: 1),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.info_outline, color: Colors.amber.shade700, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              "Showing last $_basicPatientLimit of $uniquePatientCount patients. Upgrade to Premium to view all patients.",
+              style: TextStyle(
+                fontSize: 13,
+                color: Colors.amber.shade900,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const PaymentOptionScreen()),
+              );
+            },
+            icon: const Icon(Icons.workspace_premium, size: 16),
+            label: const Text("Upgrade"),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: primaryGreen,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
   
   void _openPetDetail(Map<String, dynamic> petData) {
@@ -464,6 +568,10 @@ class _PatientHistoryScreenState extends State<PatientHistoryScreen> {
           ),
 
           const Divider(height: 1, color: Colors.grey),
+
+          // Premium limit banner for basic users
+          if (!_isPremium && !_isLoading && _appointmentsByPet.keys.length > _basicPatientLimit)
+            _buildPremiumLimitBanner(),
 
           // Main content
           Expanded(
