@@ -5,6 +5,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
 import 'package:table_calendar/table_calendar.dart';
 import 'common_sidebar.dart';
+import 'payment_option_screen.dart';
 
 
 void main() async {
@@ -213,6 +214,344 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
   DateTime? _selectedDay;
   String _selectedFilter = "all";
   final user = FirebaseAuth.instance.currentUser;
+  bool _isPremium = false;
+  static const int _monthlyAppointmentLimit = 20;
+  bool _isCheckingAutoDecline = false; // Prevent multiple simultaneous checks
+
+  @override
+  void initState() {
+    super.initState();
+    _checkPremiumStatus().then((_) {
+      // After checking premium status, auto-decline over-limit appointments
+      _autoDeclineOverLimitAppointments();
+    });
+    
+    // Set up a periodic check every 30 seconds to catch new appointments
+    // This handles cases where appointments are created while the screen is open
+    Future.delayed(const Duration(seconds: 30), () {
+      if (mounted && !_isCheckingAutoDecline) {
+        _autoDeclineOverLimitAppointments();
+      }
+    });
+  }
+
+  // Check if vet has premium status
+  Future<void> _checkPremiumStatus() async {
+    if (user == null) {
+      setState(() => _isPremium = false);
+      return;
+    }
+
+    try {
+      final vetDoc = await FirebaseFirestore.instance
+          .collection('vets')
+          .doc(user!.uid)
+          .get();
+      
+      if (vetDoc.exists) {
+        final data = vetDoc.data();
+        final premiumUntil = data?['premiumUntil'] as Timestamp?;
+        final isPremium = data?['isPremium'] as bool? ?? false;
+        
+        bool hasActivePremium = false;
+        if (premiumUntil != null) {
+          final premiumDate = premiumUntil.toDate();
+          hasActivePremium = premiumDate.isAfter(DateTime.now());
+        }
+        
+        if (mounted) {
+          setState(() {
+            _isPremium = hasActivePremium || isPremium;
+          });
+        }
+      } else {
+        if (mounted) {
+          setState(() => _isPremium = false);
+        }
+      }
+    } catch (e) {
+      debugPrint("Error checking premium status: $e");
+      if (mounted) {
+        setState(() => _isPremium = false);
+      }
+    }
+  }
+
+  // Count appointments for the current month
+  Future<int> _getMonthlyAppointmentCount() async {
+    if (user == null) return 0;
+
+    try {
+      final now = DateTime.now();
+      final startOfMonth = DateTime(now.year, now.month, 1);
+      final endOfMonth = DateTime(now.year, now.month + 1, 0, 23, 59, 59);
+
+      // Fetch all appointments for this vet and filter by date in code
+      // (Firestore doesn't support multiple range queries on same field)
+      final snapshot = await FirebaseFirestore.instance
+          .collection('user_appointments')
+          .where('vetId', isEqualTo: user!.uid)
+          .get();
+
+      // Filter appointments by current month and count non-declined/cancelled
+      int count = 0;
+      for (var doc in snapshot.docs) {
+        final data = doc.data();
+        final apptDateTime = data['appointmentDateTime'];
+        
+        if (apptDateTime != null) {
+          DateTime apptDate;
+          if (apptDateTime is Timestamp) {
+            apptDate = apptDateTime.toDate();
+          } else if (apptDateTime is DateTime) {
+            apptDate = apptDateTime;
+          } else {
+            continue;
+          }
+
+          // Check if appointment is in current month
+          if (apptDate.isAfter(startOfMonth.subtract(const Duration(days: 1))) &&
+              apptDate.isBefore(endOfMonth.add(const Duration(days: 1)))) {
+            final status = (data['status'] ?? '').toString().toLowerCase();
+            if (status != 'declined' && status != 'cancelled') {
+              count++;
+            }
+          }
+        }
+      }
+      
+      return count;
+    } catch (e) {
+      debugPrint("Error counting monthly appointments: $e");
+      return 0;
+    }
+  }
+
+  // Get count of confirmed/completed appointments only (excludes pending)
+  Future<int> _getConfirmedAppointmentCount() async {
+    if (user == null) return 0;
+
+    try {
+      final now = DateTime.now();
+      final startOfMonth = DateTime(now.year, now.month, 1);
+      final endOfMonth = DateTime(now.year, now.month + 1, 0, 23, 59, 59);
+
+      final snapshot = await FirebaseFirestore.instance
+          .collection('user_appointments')
+          .where('vetId', isEqualTo: user!.uid)
+          .get();
+
+      int count = 0;
+      for (var doc in snapshot.docs) {
+        final data = doc.data();
+        final apptDateTime = data['appointmentDateTime'];
+        final status = (data['status'] ?? '').toString().toLowerCase();
+        
+        // Only count confirmed and completed appointments (exclude pending)
+        if (status != 'confirmed' && status != 'completed') continue;
+        
+        if (apptDateTime != null) {
+          DateTime apptDate;
+          if (apptDateTime is Timestamp) {
+            apptDate = apptDateTime.toDate();
+          } else if (apptDateTime is DateTime) {
+            apptDate = apptDateTime;
+          } else {
+            continue;
+          }
+
+          // Check if appointment is in current month
+          if (apptDate.isAfter(startOfMonth.subtract(const Duration(days: 1))) &&
+              apptDate.isBefore(endOfMonth.add(const Duration(days: 1)))) {
+            count++;
+          }
+        }
+      }
+      
+      return count;
+    } catch (e) {
+      debugPrint("Error counting confirmed appointments: $e");
+      return 0;
+    }
+  }
+
+  // Auto-decline appointments that exceed the monthly limit
+  // This handles cases where appointments were created before validation was in place
+  Future<void> _autoDeclineOverLimitAppointments() async {
+    // Skip if vet is premium (unlimited appointments) or already checking
+    if (_isPremium || user == null || _isCheckingAutoDecline) return;
+
+    _isCheckingAutoDecline = true;
+
+    try {
+      final now = DateTime.now();
+      final startOfMonth = DateTime(now.year, now.month, 1);
+      final endOfMonth = DateTime(now.year, now.month + 1, 0, 23, 59, 59);
+
+      // Get count of confirmed/completed appointments (excluding pending)
+      final confirmedCount = await _getConfirmedAppointmentCount();
+      
+      // Fetch all pending appointments for this vet
+      final pendingSnapshot = await FirebaseFirestore.instance
+          .collection('user_appointments')
+          .where('vetId', isEqualTo: user!.uid)
+          .where('status', isEqualTo: 'pending')
+          .get();
+
+      // Get all pending appointments in current month, sorted by creation date (oldest first)
+      final List<Map<String, dynamic>> pendingInMonthList = [];
+      
+      for (var doc in pendingSnapshot.docs) {
+        final data = doc.data();
+        final apptDateTime = data['appointmentDateTime'];
+        final createdAt = data['createdAt'];
+
+        if (apptDateTime != null) {
+          DateTime apptDate;
+          if (apptDateTime is Timestamp) {
+            apptDate = apptDateTime.toDate();
+          } else if (apptDateTime is DateTime) {
+            apptDate = apptDateTime;
+          } else {
+            continue;
+          }
+
+          // Check if appointment is in current month
+          if (apptDate.isAfter(startOfMonth.subtract(const Duration(days: 1))) &&
+              apptDate.isBefore(endOfMonth.add(const Duration(days: 1)))) {
+            DateTime createdDate = DateTime.now();
+            if (createdAt != null) {
+              if (createdAt is Timestamp) {
+                createdDate = createdAt.toDate();
+              } else if (createdAt is DateTime) {
+                createdDate = createdAt;
+              }
+            }
+            
+            pendingInMonthList.add({
+              'id': doc.id,
+              'petName': data['petName'] ?? 'Unknown Pet',
+              'userName': data['userName'] ?? 'Unknown User',
+              'userId': data['userId'] ?? '',
+              'createdAt': createdDate,
+              'appointmentDateTime': apptDate,
+            });
+          }
+        }
+      }
+
+      // Sort by creation date (oldest first) - first come, first served
+      pendingInMonthList.sort((a, b) => 
+          (a['createdAt'] as DateTime).compareTo(b['createdAt'] as DateTime));
+
+      final List<Map<String, dynamic>> overLimitAppointments = [];
+      int pendingCount = 0;
+
+      // Process pending appointments in order (oldest first)
+      // Keep first appointments that fit within limit, decline the rest
+      for (var appointment in pendingInMonthList) {
+        pendingCount++;
+        
+        // If confirmed count + pending count would exceed the limit, mark it for decline
+        if (confirmedCount + pendingCount > _monthlyAppointmentLimit) {
+          overLimitAppointments.add({
+            'id': appointment['id'],
+            'petName': appointment['petName'],
+            'userName': appointment['userName'],
+            'userId': appointment['userId'],
+          });
+        }
+      }
+
+      // Auto-decline appointments that exceed the limit
+      if (overLimitAppointments.isNotEmpty) {
+        final batch = FirebaseFirestore.instance.batch();
+        final declinedCount = overLimitAppointments.length;
+
+        for (var appointment in overLimitAppointments) {
+          final appointmentRef = FirebaseFirestore.instance
+              .collection('user_appointments')
+              .doc(appointment['id']);
+
+          batch.update(appointmentRef, {
+            'status': 'declined',
+            'vetNotes': 'Auto-declined: Monthly appointment limit of $_monthlyAppointmentLimit has been reached. Please try booking next month or with another veterinarian.',
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        }
+
+        await batch.commit();
+
+        // Get vet name for notifications
+        String vetName = 'your veterinarian';
+        try {
+          final vetDoc = await FirebaseFirestore.instance
+              .collection('vets')
+              .doc(user!.uid)
+              .get();
+          vetName = vetDoc.data()?['name'] ?? 'your veterinarian';
+        } catch (e) {
+          debugPrint('Error fetching vet name for notifications: $e');
+        }
+
+        // Send notifications to users about declined appointments
+        for (var appointment in overLimitAppointments) {
+          try {
+            final userId = appointment['userId'] as String?;
+            
+            if (userId != null && userId.isNotEmpty) {
+              // Create notification for the user
+              await FirebaseFirestore.instance.collection('notifications').add({
+                'userId': userId,
+                'title': 'Appointment Declined',
+                'message': 'Your appointment with $vetName for ${appointment['petName']} has been declined. The veterinarian has reached their monthly appointment limit of $_monthlyAppointmentLimit appointments. Please try booking next month or with another veterinarian.',
+                'type': 'appointment_declined',
+                'appointmentId': appointment['id'],
+                'petName': appointment['petName'],
+                'vetName': vetName,
+                'read': false,
+                'createdAt': FieldValue.serverTimestamp(),
+              });
+              
+              debugPrint('Notification sent to user $userId about declined appointment ${appointment['id']}');
+            }
+          } catch (e) {
+            debugPrint('Error sending notification for appointment ${appointment['id']}: $e');
+            // Continue with other appointments even if one notification fails
+          }
+        }
+
+        // Show notification to vet about auto-declined appointments
+        if (mounted && overLimitAppointments.isNotEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                '⚠️ $declinedCount appointment(s) automatically declined due to monthly limit ($confirmedCount/$_monthlyAppointmentLimit confirmed)',
+              ),
+              backgroundColor: Colors.orange.shade700,
+              duration: const Duration(seconds: 6),
+              action: SnackBarAction(
+                label: 'Upgrade',
+                textColor: Colors.white,
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const PaymentOptionScreen()),
+                  );
+                },
+              ),
+            ),
+          );
+        }
+
+        debugPrint('Auto-declined $declinedCount appointment(s) that exceeded monthly limit');
+      }
+    } catch (e) {
+      debugPrint('Error auto-declining over-limit appointments: $e');
+    } finally {
+      _isCheckingAutoDecline = false;
+    }
+  }
 
   Stream<QuerySnapshot> _getAppointmentStream() {
     if (user != null) {
@@ -268,6 +607,100 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
         ),
         child: Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
       ),
+    );
+  }
+
+  Widget _buildAppointmentLimitBanner() {
+    if (_isPremium) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: Colors.green.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.green.shade300, width: 1.5),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.workspace_premium, color: Colors.green.shade700, size: 20),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                "Premium: Unlimited appointments this month",
+                style: TextStyle(
+                  color: Colors.green.shade900,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return FutureBuilder<int>(
+      future: _getMonthlyAppointmentCount(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const SizedBox.shrink();
+        }
+
+        final monthlyCount = snapshot.data ?? 0;
+        final isAtLimit = monthlyCount >= _monthlyAppointmentLimit;
+        final remaining = _monthlyAppointmentLimit - monthlyCount;
+
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: isAtLimit ? Colors.orange.shade50 : Colors.blue.shade50,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: isAtLimit ? Colors.orange.shade300 : Colors.blue.shade300,
+              width: 1.5,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                isAtLimit ? Icons.warning_amber_rounded : Icons.info_outline,
+                color: isAtLimit ? Colors.orange.shade700 : Colors.blue.shade700,
+                size: 20,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  isAtLimit
+                      ? "Monthly limit reached ($monthlyCount/$_monthlyAppointmentLimit). Upgrade to Premium for unlimited appointments."
+                      : "Monthly appointments: $monthlyCount/$_monthlyAppointmentLimit ($remaining remaining)",
+                  style: TextStyle(
+                    color: isAtLimit ? Colors.orange.shade900 : Colors.blue.shade900,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+              if (isAtLimit) ...[
+                const SizedBox(width: 12),
+                ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const PaymentOptionScreen()),
+                    );
+                  },
+                  icon: const Icon(Icons.workspace_premium, size: 16),
+                  label: const Text("Upgrade"),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.orange.shade700,
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        );
+      },
     );
   }
 
@@ -365,6 +798,9 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                         return Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
+                            // Appointment limit banner
+                            _buildAppointmentLimitBanner(),
+                            const SizedBox(height: 16),
                             Row(
                               children: [
                                 _tabButton("all"),
@@ -583,6 +1019,38 @@ class _AppointmentsPageState extends State<AppointmentsPage> {
                 ].map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
                 onChanged: (newStatus) async {
                   if (newStatus != null) {
+                    // Check limit before confirming an appointment
+                    if (newStatus == "confirmed" && appt.status != "confirmed") {
+                      // Only check limit if vet is not premium
+                      if (!_isPremium) {
+                        final monthlyCount = await _getMonthlyAppointmentCount();
+                        // If already at or over limit, prevent confirming new appointments
+                        if (monthlyCount >= _monthlyAppointmentLimit) {
+                          if (!mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                'Monthly appointment limit reached ($monthlyCount/$_monthlyAppointmentLimit). Upgrade to Premium for unlimited appointments.',
+                              ),
+                              backgroundColor: Colors.orange.shade700,
+                              duration: const Duration(seconds: 4),
+                              action: SnackBarAction(
+                                label: 'Upgrade',
+                                textColor: Colors.white,
+                                onPressed: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(builder: (_) => const PaymentOptionScreen()),
+                                  );
+                                },
+                              ),
+                            ),
+                          );
+                          return;
+                        }
+                      }
+                    }
+                    
                     await FirebaseFirestore.instance
                         .collection('user_appointments')
                         .doc(appt.id)

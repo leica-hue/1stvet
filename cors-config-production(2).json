@@ -1,0 +1,23 @@
+[
+  {
+    "origin": [
+      "http://localhost:*",
+      "https://your-app-domain.com",
+      "https://*.your-app-domain.com",
+      "https://fureverhealthy-admin.web.app",
+      "https://fureverhealthy-admin.firebaseapp.com"
+    ],
+    "method": ["GET", "HEAD", "OPTIONS"],
+    "responseHeader": [
+      "Content-Type",
+      "Content-Length",
+      "Content-Range",
+      "Accept-Ranges",
+      "Cache-Control",
+      "Expires",
+      "Authorization"
+    ],
+    "maxAgeSeconds": 3600
+  }
+]
+
